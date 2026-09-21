@@ -59,6 +59,27 @@ rm -f "$FILE"
 TERM_PROGRAM=Apple_Terminal fire PreToolUse
 if [ -e "$FILE" ]; then echo "FAIL  wrote a file outside iTerm"; FAIL=1
 else echo "ok    no-op outside iTerm"; fi
+TERM_PROGRAM="iTerm.app"
+
+# JSON escaping: session_id with quote and backslash round-trips
+rm -f "$FILE"
+TRICKY='quote"back\slash'
+jq -n --arg event PreToolUse --arg sid "$TRICKY" '{hook_event_name: $event, session_id: $sid}' | sh "$HOOK"
+if [ -f "$FILE" ]; then
+  # Verify the file is valid JSON
+  if jq . < "$FILE" > /dev/null 2>&1; then
+    sid=$(jq -r '.claude_session_id' < "$FILE")
+    if [ "$sid" = "$TRICKY" ]; then
+      echo "ok    escapes JSON special chars"
+    else
+      echo "FAIL  JSON escaping: got '$sid', want '$TRICKY'"; FAIL=1
+    fi
+  else
+    echo "FAIL  JSON escaping produced invalid JSON"; FAIL=1
+  fi
+else
+  echo "FAIL  JSON escaping test: file not created"; FAIL=1
+fi
 
 # No leftover temp files
 leftovers=$(find "$TMP" -name '*.tmp.*' | wc -l | tr -d ' ')
