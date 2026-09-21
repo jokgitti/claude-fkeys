@@ -1,7 +1,7 @@
 #!/bin/sh
 # Test the state-derivation table in hooks/fkey-status.sh.
 # Uses FKEYS_STATE_DIR so nothing touches the real ~/.claude/.fkeys.
-HOOK="$(cd "$(dirname "$0")/.." && pwd)/hooks/fkey-status.sh"
+HOOK="$(cd "$(dirname "$0")/.." && pwd)/fkey-status.sh"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
