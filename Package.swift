@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "fkeysd",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS(.v14)],
     targets: [
         .target(name: "FKeysCore"),
         .executableTarget(name: "fkeysd", dependencies: ["FKeysCore"]),

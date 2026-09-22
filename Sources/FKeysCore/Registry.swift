@@ -50,10 +50,39 @@ public struct Registry: Equatable, Sendable, Codable {
     }
 
     public init(from decoder: Decoder) throws {
-        let raw = try decoder.singleValueContainer().decode([String: String].self)
-        byKey = Dictionary(uniqueKeysWithValues: raw.compactMap { k, v in
-            Int(k).map { ($0, v) }
-        })
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode([String: String].self)
+
+        var decoded: [Int: String] = [:]
+        var seenUUIDs: Set<String> = []
+        for (rawKey, uuid) in raw {
+            guard let key = Int(rawKey) else {
+                throw DecodingError.dataCorruptedError(
+                    in: container,
+                    debugDescription: "Registry key \"\(rawKey)\" is not an integer."
+                )
+            }
+            guard (1...Registry.capacity).contains(key) else {
+                throw DecodingError.dataCorruptedError(
+                    in: container,
+                    debugDescription: "Registry key \(key) is outside 1...\(Registry.capacity)."
+                )
+            }
+            guard decoded[key] == nil else {
+                throw DecodingError.dataCorruptedError(
+                    in: container,
+                    debugDescription: "Registry key \(key) appears more than once."
+                )
+            }
+            guard seenUUIDs.insert(uuid).inserted else {
+                throw DecodingError.dataCorruptedError(
+                    in: container,
+                    debugDescription: "UUID \"\(uuid)\" is bound to more than one key."
+                )
+            }
+            decoded[key] = uuid
+        }
+        byKey = decoded
     }
 
     public func encode(to encoder: Encoder) throws {

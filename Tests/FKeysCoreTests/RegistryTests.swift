@@ -68,3 +68,31 @@ import Testing
     let back = try JSONDecoder().decode(Registry.self, from: data)
     #expect(back == r)
 }
+
+@Test func decodeThrowsOnANonIntegerKey() {
+    let json = Data(#"{"one":"uuid-a"}"#.utf8)
+    #expect(throws: DecodingError.self) {
+        try JSONDecoder().decode(Registry.self, from: json)
+    }
+}
+
+@Test func decodeThrowsOnAKeyBelowRange() {
+    let json = Data(#"{"0":"uuid-a"}"#.utf8)
+    #expect(throws: DecodingError.self) {
+        try JSONDecoder().decode(Registry.self, from: json)
+    }
+}
+
+@Test func decodeThrowsOnAKeyAboveRange() {
+    let json = Data(#"{"13":"uuid-a"}"#.utf8)
+    #expect(throws: DecodingError.self) {
+        try JSONDecoder().decode(Registry.self, from: json)
+    }
+}
+
+@Test func decodeThrowsWhenTheSameUUIDAppearsUnderTwoKeys() {
+    let json = Data(#"{"1":"uuid-a","2":"uuid-a"}"#.utf8)
+    #expect(throws: DecodingError.self) {
+        try JSONDecoder().decode(Registry.self, from: json)
+    }
+}
