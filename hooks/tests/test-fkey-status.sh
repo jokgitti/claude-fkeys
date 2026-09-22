@@ -3,7 +3,9 @@
 # Uses FKEYS_STATE_DIR so nothing touches the real ~/.claude/.fkeys.
 HOOK="$(cd "$(dirname "$0")/.." && pwd)/fkey-status.sh"
 TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
+# rm -f + rmdir rather than rm -rf: the dir is flat, and rm -rf in a repo
+# script triggers a permission prompt on every run for no benefit.
+trap 'rm -f "$TMP"/*; rmdir "$TMP" 2>/dev/null' EXIT
 
 FKEYS_STATE_DIR="$TMP"; export FKEYS_STATE_DIR
 TERM_PROGRAM="iTerm.app"; export TERM_PROGRAM

@@ -1,0 +1,8 @@
+#!/bin/sh
+# Swift Testing's macro plugin lives in a `testing` subdirectory that the build
+# does not add to its plugin search path on a Command Line Tools install, so
+# `swift test` alone fails with "plugin for module 'TestingMacros' not found".
+# Derived from the active swift binary, so it resolves under either CLT or Xcode.
+set -e
+PLUGIN="$(dirname "$(dirname "$(xcrun -f swift)")")/lib/swift/host/plugins/testing"
+exec swift test -Xswiftc -plugin-path -Xswiftc "$PLUGIN" "$@"
