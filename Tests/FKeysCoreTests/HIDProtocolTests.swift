@@ -37,3 +37,11 @@ import Testing
     ])
     #expect(Array(report[13...31]).allSatisfy { $0 == 0 })
 }
+
+@Test func fKeyLEDIndicesAreTwelveDistinctAscendingValues() {
+    let indices = HIDProtocol.fKeyLEDIndices
+    #expect(indices.count == 12)
+    #expect(Set(indices).count == 12)
+    #expect(indices == indices.sorted())
+    #expect(indices.allSatisfy { (0...97).contains($0) })
+}

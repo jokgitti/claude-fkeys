@@ -47,4 +47,8 @@ public enum HIDProtocol {
         }
         return report
     }
+
+    /// LED indices for F1…F12 on gmmk/pro/rev1/ansi, derived from the board's
+    /// rgb_matrix layout. Verified on hardware in Task 8.
+    public static let fKeyLEDIndices = [6, 12, 18, 23, 28, 34, 39, 44, 50, 56, 61, 66]
 }
