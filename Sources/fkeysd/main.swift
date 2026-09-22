@@ -4,6 +4,10 @@ import FKeysCore
 
 let stateDir = URL(fileURLWithPath: NSHomeDirectory())
     .appendingPathComponent(".claude/.fkeys")
+// Outside stateDir on purpose: stateDir is watched, and anything the daemon
+// itself writes there re-triggers that watcher. See Daemon.swift's init doc.
+let registryURL = URL(fileURLWithPath: NSHomeDirectory())
+    .appendingPathComponent(".claude/fkeys-registry.json")
 let paletteURL = URL(fileURLWithPath: NSHomeDirectory())
     .appendingPathComponent(".config/fkeys/palette.json")
 
@@ -33,13 +37,19 @@ func sendOrExplain(_ report: [UInt8]) {
 
 let arguments = Array(CommandLine.arguments.dropFirst())
 
+// A top-level var, not a case-local let: RegisterEventHotKey's callback and
+// the reconcile Timer both hold only a weak reference to this Daemon, and a
+// local's lifetime past its last syntactic use is unspecified. A top-level
+// stored property lives for the process, so app.run() below can't outlive it.
+var daemon: Daemon?
+
 switch arguments.first {
 case "status":
-    print(Daemon(stateDir: stateDir).statusReport())
+    print(Daemon(stateDir: stateDir, registryURL: registryURL).statusReport())
 
 case "--dry-run":
     let states = StateStore(dir: stateDir).scan()
-    let registry: Registry = (try? Data(contentsOf: stateDir.appendingPathComponent("registry.json")))
+    let registry: Registry = (try? Data(contentsOf: registryURL))
         .flatMap { try? JSONDecoder().decode(Registry.self, from: $0) } ?? Registry()
     let keyStates = (1...HIDProtocol.keyCount).map { key in
         KeyState(registry.uuid(forKey: key).flatMap { states[$0] })
@@ -94,8 +104,8 @@ case .none:
     // without a Dock icon or a menu bar.
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
-    let daemon = Daemon(stateDir: stateDir)
-    daemon.start()
+    daemon = Daemon(stateDir: stateDir, registryURL: registryURL)
+    daemon?.start()
     app.run()
 
 case .some(let unknown):

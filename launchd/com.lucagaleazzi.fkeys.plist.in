@@ -15,8 +15,8 @@
     <key>ProcessType</key>
     <string>Interactive</string>
     <key>StandardOutPath</key>
-    <string>@HOME@/.claude/.fkeys/fkeysd.log</string>
+    <string>@HOME@/.claude/fkeys.log</string>
     <key>StandardErrorPath</key>
-    <string>@HOME@/.claude/.fkeys/fkeysd.log</string>
+    <string>@HOME@/.claude/fkeys.log</string>
 </dict>
 </plist>

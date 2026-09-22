@@ -1,7 +1,16 @@
 import Foundation
 import FKeysCore
 
-final class Daemon {
+/// `@unchecked Sendable` only to satisfy `Timer.scheduledTimer`'s `@Sendable`
+/// closure parameter. Every mutation of `registry` happens on the main
+/// thread in practice: DirectoryWatcher's DispatchSource runs its handler on
+/// `.main` (see DirectoryWatcher.swift), the hotkey callback fires on the
+/// main run loop via Carbon's GetEventDispatcherTarget() (see
+/// Hotkeys.swift), and this class's own Timer fires on the main run loop
+/// too, since `app.run()` runs it. No lock or queue is added here — if a
+/// future caller ever touches a Daemon from a background thread, this
+/// annotation stops the compiler from catching it.
+final class Daemon: @unchecked Sendable {
     private let stateDir: URL
     private let registryURL: URL
     private let store: StateStore
@@ -12,9 +21,13 @@ final class Daemon {
     private var reconcileTimer: Timer?
     private let hotkeys = HotkeyManager()
 
-    init(stateDir: URL, iterm: ITermCLI = ITermCLI()) {
+    /// `registryURL` must live outside `stateDir`: `stateDir` is watched, and
+    /// a write inside it re-triggers the watcher. Saving the registry there
+    /// (or logging there, see launchd/com.lucagaleazzi.fkeys.plist.in) is an
+    /// unbounded refresh-save-refresh loop, not a one-off self-trigger.
+    init(stateDir: URL, registryURL: URL, iterm: ITermCLI = ITermCLI()) {
         self.stateDir = stateDir
-        self.registryURL = stateDir.appendingPathComponent("registry.json")
+        self.registryURL = registryURL
         self.store = StateStore(dir: stateDir)
         self.iterm = iterm
     }
@@ -43,22 +56,30 @@ final class Daemon {
     }
 
     /// Bind new sessions, unbind gone ones, then push the lights.
+    ///
+    /// The hook triggers this on every PreToolUse/PostToolUse, and most of
+    /// those calls bind nothing new and release nothing — the session's file
+    /// already exists and still exists. `changed` gates the save on those,
+    /// so a no-op refresh costs a directory scan, not a disk write too.
     func refresh() {
         let states = store.scan()
+        var changed = false
 
         // Sorted so assignment is deterministic when several sessions appear at once.
         for uuid in states.keys.sorted() where registry.key(for: uuid) == nil {
             if let key = registry.assign(uuid) {
                 log("F\(key) -> \(uuid)")
+                changed = true
             } else {
                 log("no free F-key for \(uuid); \(Registry.capacity) already bound")
             }
         }
         for uuid in Array(registry.byKey.values) where states[uuid] == nil {
             registry.release(uuid)
+            changed = true
         }
 
-        saveRegistry()
+        if changed { saveRegistry() }
         publish(states)
     }
 
@@ -80,6 +101,9 @@ final class Daemon {
     }
 
     func statusReport() -> String {
+        // `status` builds a fresh Daemon that never calls start(), so this is
+        // the only place its registry gets loaded from disk.
+        loadRegistry()
         let states = store.scan()
         return (1...Registry.capacity).map { key in
             guard let uuid = registry.uuid(forKey: key) else { return "F\(key)  —" }
