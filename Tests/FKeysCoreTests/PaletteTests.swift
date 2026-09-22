@@ -14,6 +14,11 @@ import Foundation
     #expect(RGB(hex: "#fff") == nil)
     #expect(RGB(hex: "#ff95000") == nil)
     #expect(RGB(hex: "#gg9500") == nil)
+    #expect(RGB(hex: "+f9500") == nil)
+    #expect(RGB(hex: "#+f9500") == nil)
+    #expect(RGB(hex: "-f9500") == nil)
+    #expect(RGB(hex: "f_9500") == nil)
+    #expect(RGB(hex: "0xff95") == nil)
 }
 
 @Test func hexRoundTrips() {
@@ -50,4 +55,15 @@ import Foundation
     defer { try? FileManager.default.removeItem(at: bad) }
     try "{ not json".write(to: bad, atomically: true, encoding: .utf8)
     #expect(Palette.load(from: bad) == Palette.default)
+}
+
+@Test func fallsBackToTheDefaultWhenAColorValueIsMalformedHex() throws {
+    let url = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("palette-bad-hex-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: url) }
+    try "{\"off\":\"#000000\",\"working\":\"+f9500\",\"idle\":\"#00d75f\",\"waiting\":\"#ff00aa\"}"
+        .write(to: url, atomically: true, encoding: .utf8)
+
+    let p = Palette.load(from: url)
+    #expect(p == Palette.default)
 }

@@ -14,7 +14,7 @@ public struct RGB: Equatable, Sendable, Codable {
     public init?(hex: String) {
         var digits = hex
         if digits.hasPrefix("#") { digits.removeFirst() }
-        guard digits.count == 6, let value = UInt32(digits, radix: 16) else { return nil }
+        guard digits.count == 6, digits.allSatisfy(\.isHexDigit), let value = UInt32(digits, radix: 16) else { return nil }
         self.init(
             r: UInt8((value >> 16) & 0xFF),
             g: UInt8((value >> 8) & 0xFF),
