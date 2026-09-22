@@ -4,5 +4,12 @@
 # `swift test` alone fails with "plugin for module 'TestingMacros' not found".
 # Derived from the active swift binary, so it resolves under either CLT or Xcode.
 set -e
+# `--clean` first: use SwiftPM's own clean rather than rm -rf .build, which
+# needs approval on every run and can delete more than intended on a typo.
+if [ "$1" = "--clean" ]; then
+    shift
+    swift package clean
+fi
+
 PLUGIN="$(dirname "$(dirname "$(xcrun -f swift)")")/lib/swift/host/plugins/testing"
 exec swift test -Xswiftc -plugin-path -Xswiftc "$PLUGIN" "$@"
