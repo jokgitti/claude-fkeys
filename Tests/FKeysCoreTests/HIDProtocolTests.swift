@@ -1,0 +1,39 @@
+import Testing
+@testable import FKeysCore
+
+@Test func keyStateMapsFromSessionState() {
+    #expect(KeyState(nil) == .off)
+    #expect(KeyState(.working) == .working)
+    #expect(KeyState(.idle) == .idle)
+    #expect(KeyState(.waiting) == .waiting)
+}
+
+@Test func keyStateRawValuesMatchTheFirmwareContract() {
+    #expect(KeyState.off.rawValue == 0)
+    #expect(KeyState.working.rawValue == 1)
+    #expect(KeyState.idle.rawValue == 2)
+    #expect(KeyState.waiting.rawValue == 3)
+}
+
+@Test func encodesStatesIntoA32ByteReport() {
+    let states: [KeyState] = [.idle, .working, .waiting, .off, .off, .off,
+                              .off, .off, .off, .off, .off, .off]
+    let report = HIDProtocol.encodeStates(states)
+    #expect(report.count == 32)
+    #expect(report[0] == 0x01)
+    #expect(Array(report[1...12]) == [2, 1, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    #expect(Array(report[13...31]).allSatisfy { $0 == 0 })
+}
+
+@Test func encodesThePaletteInOffWorkingIdleWaitingOrder() {
+    let report = HIDProtocol.encodePalette(.default)
+    #expect(report.count == 32)
+    #expect(report[0] == 0x02)
+    #expect(Array(report[1...12]) == [
+        0, 0, 0,          // off     #000000
+        255, 149, 0,      // working #ff9500
+        0, 215, 95,       // idle    #00d75f
+        255, 0, 170,      // waiting #ff00aa
+    ])
+    #expect(Array(report[13...31]).allSatisfy { $0 == 0 })
+}

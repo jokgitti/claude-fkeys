@@ -1,1 +1,6 @@
-{"off":"#000000","working":"#ff9500","idle":"#00d75f","waiting":"#ff00aa"}
+{
+  "off": "#000000",
+  "working": "#ff9500",
+  "idle": "#00d75f",
+  "waiting": "#ff00aa"
+}
