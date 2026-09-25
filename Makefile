@@ -18,6 +18,7 @@ build:
 test:
 	sh scripts/swift-test
 	sh hooks/tests/test-fkey-status.sh
+	sh qmk/tests/run.sh
 
 install: build
 	mkdir -p "$(BINDIR)" "$(CONFDIR)" "$(PLISTDIR)" "$(PREFIX)/.claude/.fkeys"
