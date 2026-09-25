@@ -32,7 +32,7 @@ install: build
 	@echo "installed. add $(HOOK) to the hooks in ~/.claude/settings.json"
 
 # Deliberately leaves behind: the tuned palette ($(CONF)), the state dir
-# ($(PREFIX)/.claude/.fkeys) and the daemon's own registry/log files under
+# ($(PREFIX)/.claude/.fkeys) and the daemon's own log file under
 # $(PREFIX)/.claude. None of those are install artifacts — they're state a
 # reinstall must not wipe.
 uninstall:

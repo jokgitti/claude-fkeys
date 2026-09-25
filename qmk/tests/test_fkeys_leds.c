@@ -5,7 +5,7 @@
 // reset hook added to the production file just for tests.
 //
 // Byte payloads for the "mixed"/"window"/"pulse" scenarios are the real
-// SET_PALETTE/SET_STATES reports fkeysd printed for a known registry+state
+// SET_PALETTE/SET_STATES reports fkeysd printed for a known tab/session
 // fixture (see run.sh) — not hand-typed literals — so a mismatch here is
 // either an fkeys_leds.c bug or a Swift/C wire-format disagreement, not a
 // disagreement with this file's own assumptions about the format.
@@ -126,17 +126,17 @@ static void assert_not_painted(const char *label, uint8_t index) {
 
 // ---- scenarios ----
 
-// Registry fixture (see run.sh): key1..key4 bound, key1=working, key2=idle,
-// key3=waiting, key4 registered but no state file (-> off); keys 5-12 unbound
-// (-> off). Palette is the custom fixture in run.sh, not fkeys_leds.c's
-// built-in defaults, so a test passing by coincidence against defaults is
-// ruled out.
+// Tab/session fixture (see run.sh): one window, 4 tabs. Tab 0 (F1) working,
+// tab 1 (F2) idle, tab 2 (F3) waiting, tab 3 (F4) a plain tab with no
+// session (-> off); tabs 4-11 (F5-F12) don't exist in the window (-> off).
+// Palette is the custom fixture in run.sh, not fkeys_leds.c's built-in
+// defaults, so a test passing by coincidence against defaults is ruled out.
 enum {
     LED_F1 = 6,   // working
     LED_F2 = 12,  // idle
     LED_F3 = 18,  // waiting
-    LED_F4 = 23,  // off (ghost registry entry)
-    LED_F5 = 28,  // off (unbound)
+    LED_F4 = 23,  // off (tab with no session)
+    LED_F5 = 28,  // off (no tab)
     LED_F6 = 34,
     LED_F7 = 39,
     LED_F8 = 44,
@@ -189,7 +189,7 @@ static void scenario_mixed(const char *palette_hex, const char *states_hex) {
     assert_painted("mixed: F1 working",  LED_F1,  PAL_WORKING.r, PAL_WORKING.g, PAL_WORKING.b);
     assert_painted("mixed: F2 idle",     LED_F2,  PAL_IDLE.r,    PAL_IDLE.g,    PAL_IDLE.b);
     assert_painted("mixed: F3 waiting (pulse peak)", LED_F3, PAL_WAITING.r, PAL_WAITING.g, PAL_WAITING.b);
-    assert_painted("mixed: F4 off (ghost registry entry)", LED_F4, PAL_OFF.r, PAL_OFF.g, PAL_OFF.b);
+    assert_painted("mixed: F4 off (tab with no session)", LED_F4, PAL_OFF.r, PAL_OFF.g, PAL_OFF.b);
     assert_painted("mixed: F5 off (unbound)",  LED_F5,  PAL_OFF.r, PAL_OFF.g, PAL_OFF.b);
     assert_painted("mixed: F6 off (unbound)",  LED_F6,  PAL_OFF.r, PAL_OFF.g, PAL_OFF.b);
     assert_painted("mixed: F7 off (unbound)",  LED_F7,  PAL_OFF.r, PAL_OFF.g, PAL_OFF.b);
@@ -225,7 +225,7 @@ static void scenario_defaults(const char *states_hex) {
     assert_painted("defaults: F1 working",  LED_F1,  DEFAULT_WORKING.r, DEFAULT_WORKING.g, DEFAULT_WORKING.b);
     assert_painted("defaults: F2 idle",     LED_F2,  DEFAULT_IDLE.r,    DEFAULT_IDLE.g,    DEFAULT_IDLE.b);
     assert_painted("defaults: F3 waiting (pulse peak)", LED_F3, DEFAULT_WAITING.r, DEFAULT_WAITING.g, DEFAULT_WAITING.b);
-    assert_painted("defaults: F4 off (ghost registry entry)", LED_F4, DEFAULT_OFF.r, DEFAULT_OFF.g, DEFAULT_OFF.b);
+    assert_painted("defaults: F4 off (tab with no session)", LED_F4, DEFAULT_OFF.r, DEFAULT_OFF.g, DEFAULT_OFF.b);
     assert_painted("defaults: F5 off (unbound)",  LED_F5,  DEFAULT_OFF.r, DEFAULT_OFF.g, DEFAULT_OFF.b);
     assert_painted("defaults: F6 off (unbound)",  LED_F6,  DEFAULT_OFF.r, DEFAULT_OFF.g, DEFAULT_OFF.b);
     assert_painted("defaults: F7 off (unbound)",  LED_F7,  DEFAULT_OFF.r, DEFAULT_OFF.g, DEFAULT_OFF.b);

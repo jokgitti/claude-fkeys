@@ -53,13 +53,58 @@ private func tab(_ index: Int, id: String) -> TabInfo {
 }
 
 @Test func aSessionWhoseTabHasVanishedIsNotBound() {
-    // uuidToTabID still has a stale cache entry for a tab.id the current
-    // tab list no longer contains (the tab was closed).
+    // uuidToTabID has a stale cache entry for a tab.id the current tab list
+    // no longer contains (the tab was closed), alongside a genuinely live
+    // session — so the test can tell "only that slot goes dark" apart from
+    // "derive() blanks everything".
     let tabs = [tab(0, id: "1")]
-    let uuidToTabID = ["gone": "99"]
-    let states = ["gone": SessionState.working]
+    let uuidToTabID = ["live": "1", "gone": "99"]
+    let states = ["live": SessionState.idle, "gone": SessionState.working]
 
     let slots = KeyBinding.derive(tabs: tabs, uuidToTabID: uuidToTabID, states: states)
 
-    #expect(slots.allSatisfy { $0.uuid == nil })
+    #expect(slots[0] == KeySlot(tabIndex: 0, uuid: "live", state: .idle))
+    #expect(slots.allSatisfy { $0.uuid != "gone" })
+}
+
+// --- cache invalidation (invalidateStaleCache) ---
+//
+// derive() itself already tolerates a stale entry (above): it just never
+// matches a vanished tab.id. These tests cover the separate, proactive step
+// that drops stale entries from the cache *before* derive() ever sees it, so
+// a dragged pane's old tab.id doesn't linger for the life of the session.
+
+@Test func staleCacheDropsATabIDThatNoLongerExists() {
+    let tabs = [tab(0, id: "1")]
+    let uuidToTabID = ["a": "1", "gone": "99"]
+
+    let cleaned = KeyBinding.invalidateStaleCache(uuidToTabID: uuidToTabID, tabs: tabs)
+
+    #expect(cleaned == ["a": "1"])
+}
+
+@Test func staleCacheDropsAllEntriesForATabTheCacheOvercounts() {
+    // Tab "5" reports 1 session but the cache claims two uuids point at it —
+    // exactly what a dragged pane looks like: one uuid moved there from
+    // elsewhere and the other cache entry is now wrong. Which one is stale
+    // is not knowable from the count alone, so both are dropped and
+    // re-fetched this pass.
+    let tabs = [tab(0, id: "5")]
+    let uuidToTabID = ["a": "5", "b": "5"]
+
+    let cleaned = KeyBinding.invalidateStaleCache(uuidToTabID: uuidToTabID, tabs: tabs)
+
+    #expect(cleaned.isEmpty)
+}
+
+@Test func staleCacheIgnoresATabReportingMoreSessionsThanCached() {
+    // A tab can legitimately report more sessions than the cache knows about
+    // — non-Claude panes count too — so under-counting must never be treated
+    // as evidence of staleness.
+    let tabs = [TabInfo(index: 0, id: "5", windowID: "w", isActive: false, sessionCount: 3)]
+    let uuidToTabID = ["a": "5"]
+
+    let cleaned = KeyBinding.invalidateStaleCache(uuidToTabID: uuidToTabID, tabs: tabs)
+
+    #expect(cleaned == ["a": "5"])
 }

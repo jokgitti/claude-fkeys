@@ -43,4 +43,40 @@ public enum KeyBinding {
             return KeySlot(tabIndex: index, uuid: uuid, state: states[uuid])
         }
     }
+
+    /// Drops cache entries a fresh tab list proves stale, before any
+    /// gap-filling lookup runs. Without this, dragging a pane to a different
+    /// existing tab leaves its uuid bound to wherever its *old* tab.id ends
+    /// up — the uuid never disappears from `it2 session list`, so nothing
+    /// else would ever notice or re-fetch it.
+    ///
+    /// Two rules, both keyed off `tabs`' own `sessionCount`:
+    /// 1. A cached tab.id absent from `tabs` no longer exists — drop it.
+    /// 2. If more cached uuids claim a tab.id than that tab's own
+    ///    `sessionCount`, at least one is wrong; which one isn't knowable
+    ///    from the count alone, so every entry for that tab.id is dropped
+    ///    and re-fetched this pass.
+    ///
+    /// The converse of rule 2 is deliberately not applied: a tab reporting
+    /// *more* sessions than the cache knows about is not evidence of
+    /// staleness, since non-Claude panes count too.
+    public static func invalidateStaleCache(
+        uuidToTabID: [String: String],
+        tabs: [TabInfo]
+    ) -> [String: String] {
+        let sessionCountByTabID = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0.sessionCount) })
+
+        var cachedCountByTabID: [String: Int] = [:]
+        for tabID in uuidToTabID.values {
+            cachedCountByTabID[tabID, default: 0] += 1
+        }
+        let overcountedTabIDs = cachedCountByTabID.filter { tabID, cachedCount in
+            guard let sessionCount = sessionCountByTabID[tabID] else { return false } // rule 1 covers this
+            return cachedCount > sessionCount
+        }.keys
+
+        return uuidToTabID.filter { _, tabID in
+            sessionCountByTabID[tabID] != nil && !overcountedTabIDs.contains(tabID)
+        }
+    }
 }

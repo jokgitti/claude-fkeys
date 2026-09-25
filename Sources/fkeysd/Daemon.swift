@@ -19,10 +19,11 @@ final class Daemon: @unchecked Sendable {
     /// Kept across a failed it2 call so a hiccup degrades to "stale", never
     /// to "nothing bound".
     private var tabs: [TabInfo] = []
-    /// Session uuid → `tab.id`, filled in once per uuid and never dropped
-    /// except when its state file is removed — the mapping only changes if
-    /// the session itself moves to another tab, which a hook restart would
-    /// re-observe anyway.
+    /// Session uuid → `tab.id`, filled in once per uuid and dropped when its
+    /// state file is removed, or when `KeyBinding.invalidateStaleCache`
+    /// proves an entry stale (see rederiveTabs) — which is how a dragged
+    /// pane's old tab.id stops lingering without waiting for the session to
+    /// end.
     private var uuidToTabID: [String: String] = [:]
     private var lastUUIDs: Set<String> = []
 
@@ -73,12 +74,14 @@ final class Daemon: @unchecked Sendable {
     }
 
     /// Re-derives tab positions: refreshes the frontmost window's tab list,
-    /// then fills in a `tab.id` for any uuid not already cached. A failed or
-    /// unreachable it2 call leaves the previous tabs/cache in place — see
-    /// ITermCLI.frontmostWindowTabs.
+    /// drops any cache entry the fresh list proves stale (a dragged pane —
+    /// see KeyBinding.invalidateStaleCache), then fills in a `tab.id` for
+    /// any uuid still uncached. A failed or unreachable it2 call leaves the
+    /// previous tabs/cache in place entirely — see ITermCLI.frontmostWindowTabs.
     private func rederiveTabs() {
         if let fresh = iterm.frontmostWindowTabs() {
             tabs = fresh
+            uuidToTabID = KeyBinding.invalidateStaleCache(uuidToTabID: uuidToTabID, tabs: tabs)
         }
         for uuid in lastUUIDs where uuidToTabID[uuid] == nil {
             if let tabID = iterm.tabID(forSessionUUID: uuid) {

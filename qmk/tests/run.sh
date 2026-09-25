@@ -164,7 +164,7 @@ run_case() {
     fi
 }
 
-run_case "mixed registry"        mixed          "$PALETTE_HEX" "$STATES_HEX"
+run_case "mixed tabs"            mixed          "$PALETTE_HEX" "$STATES_HEX"
 run_case "compiled-in default palette (no SET_PALETTE sent)" defaults "$STATES_HEX"
 # [23, 44) pins both edges on real LED indices rather than landing in a gap
 # between them: 23 is F4's own index (must be included, F3 at 18 excluded)
