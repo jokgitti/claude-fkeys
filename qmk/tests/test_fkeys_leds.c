@@ -163,6 +163,15 @@ static void feed(const char *hex, int max_len) {
     fkeys_receive(buf, (uint8_t)n);
 }
 
+// Literal copies of the spec's default palette (config/palette.json /
+// fkeys_leds.c's compiled-in initialiser), independent of fkeys_leds.c's own
+// table for the same reason as EXPECT_* above: comparing against a copy of
+// the table under test would hide a regression in that table, not catch it.
+static const rgb_t DEFAULT_OFF     = {0x00, 0x00, 0x00};
+static const rgb_t DEFAULT_WORKING = {0xFF, 0x95, 0x00};
+static const rgb_t DEFAULT_IDLE    = {0x00, 0xD7, 0x5F};
+static const rgb_t DEFAULT_WAITING = {0xFF, 0x00, 0xAA};
+
 static void scenario_mixed(const char *palette_hex, const char *states_hex) {
     reset_calls();
     g_mock_time = 0;
@@ -194,6 +203,42 @@ static void scenario_mixed(const char *palette_hex, const char *states_hex) {
         fail("mixed: expected exactly %d rgb_matrix_set_color calls, got %d", FKEYS_COUNT, g_call_count);
     } else {
         ok("mixed: exactly 12 calls, nothing painted at any other index");
+    }
+}
+
+// Exercises fkeys_leds.c's compiled-in default palette. Every other scenario
+// sends a SET_PALETTE report before ever painting, so the defaults are
+// overwritten before they're read -- nothing else in this file would catch a
+// wrong default. Those defaults are live on hardware whenever a SET_STATES
+// report arrives with no preceding SET_PALETTE: a daemon that crashed
+// between the two writes, or a future tool that only ever sends states.
+// Reuses the real states_hex from run.sh's fixture (see scenario_mixed) --
+// only the SET_PALETTE report is withheld, still no hand-typed states bytes.
+static void scenario_defaults(const char *states_hex) {
+    reset_calls();
+    g_mock_time = 0;
+    feed(states_hex, 32); // SET_STATES only; SET_PALETTE deliberately never sent.
+
+    g_mock_time = 750; // pulse peak, see scenario_mixed
+    fkeys_paint(0, 255);
+
+    assert_painted("defaults: F1 working",  LED_F1,  DEFAULT_WORKING.r, DEFAULT_WORKING.g, DEFAULT_WORKING.b);
+    assert_painted("defaults: F2 idle",     LED_F2,  DEFAULT_IDLE.r,    DEFAULT_IDLE.g,    DEFAULT_IDLE.b);
+    assert_painted("defaults: F3 waiting (pulse peak)", LED_F3, DEFAULT_WAITING.r, DEFAULT_WAITING.g, DEFAULT_WAITING.b);
+    assert_painted("defaults: F4 off (ghost registry entry)", LED_F4, DEFAULT_OFF.r, DEFAULT_OFF.g, DEFAULT_OFF.b);
+    assert_painted("defaults: F5 off (unbound)",  LED_F5,  DEFAULT_OFF.r, DEFAULT_OFF.g, DEFAULT_OFF.b);
+    assert_painted("defaults: F6 off (unbound)",  LED_F6,  DEFAULT_OFF.r, DEFAULT_OFF.g, DEFAULT_OFF.b);
+    assert_painted("defaults: F7 off (unbound)",  LED_F7,  DEFAULT_OFF.r, DEFAULT_OFF.g, DEFAULT_OFF.b);
+    assert_painted("defaults: F8 off (unbound)",  LED_F8,  DEFAULT_OFF.r, DEFAULT_OFF.g, DEFAULT_OFF.b);
+    assert_painted("defaults: F9 off (unbound)",  LED_F9,  DEFAULT_OFF.r, DEFAULT_OFF.g, DEFAULT_OFF.b);
+    assert_painted("defaults: F10 off (unbound)", LED_F10, DEFAULT_OFF.r, DEFAULT_OFF.g, DEFAULT_OFF.b);
+    assert_painted("defaults: F11 off (unbound)", LED_F11, DEFAULT_OFF.r, DEFAULT_OFF.g, DEFAULT_OFF.b);
+    assert_painted("defaults: F12 off (unbound)", LED_F12, DEFAULT_OFF.r, DEFAULT_OFF.g, DEFAULT_OFF.b);
+
+    if (g_call_count != FKEYS_COUNT) {
+        fail("defaults: expected exactly %d rgb_matrix_set_color calls, got %d", FKEYS_COUNT, g_call_count);
+    } else {
+        ok("defaults: exactly 12 calls, nothing painted at any other index");
     }
 }
 
@@ -445,6 +490,8 @@ int main(int argc, char **argv) {
 
     if (strcmp(scenario, "mixed") == 0 && argc == 4) {
         scenario_mixed(argv[2], argv[3]);
+    } else if (strcmp(scenario, "defaults") == 0 && argc == 3) {
+        scenario_defaults(argv[2]);
     } else if (strcmp(scenario, "window") == 0 && argc == 6) {
         scenario_window(argv[2], argv[3], atoi(argv[4]), atoi(argv[5]));
     } else if (strcmp(scenario, "watchdog_none") == 0 && argc == 2) {

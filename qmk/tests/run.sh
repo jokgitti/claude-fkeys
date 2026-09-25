@@ -91,6 +91,7 @@ run_case() {
 }
 
 run_case "mixed registry"        mixed          "$PALETTE_HEX" "$STATES_HEX"
+run_case "compiled-in default palette (no SET_PALETTE sent)" defaults "$STATES_HEX"
 run_case "led_min/led_max window" window        "$PALETTE_HEX" "$STATES_HEX" 20 45
 run_case "watchdog: no report ever" watchdog_none
 run_case "watchdog: stale report" watchdog_stale "$PALETTE_HEX" "$STATES_HEX"
