@@ -32,3 +32,79 @@ BFCB9F58-8EFE-432D-8DAB-07FD5388D158\tchat (claude)\tchat (claude)\t364x93\t\\/d
     let output = "BFCB9F58-8EFE-432D-8DAB-07FD5388D158\tchat\r\n"
     #expect(ITermParsing.sessionUUIDs(from: output) == ["BFCB9F58-8EFE-432D-8DAB-07FD5388D158"])
 }
+
+// Real captured output from `it2 tab list --json`. Key order deliberately
+// differs between the two objects — the parser must not depend on it.
+private let tabListSample = """
+[
+  {
+    "sessions" : 1,
+    "index" : 0,
+    "id" : "1",
+    "is_active" : false,
+    "window_id" : "pty-89CA3495-C90F-439D-9652-759281746556"
+  },
+  {
+    "is_active" : true,
+    "id" : "2",
+    "sessions" : 1,
+    "window_id" : "pty-89CA3495-C90F-439D-9652-759281746556",
+    "index" : 1
+  }
+]
+"""
+
+@Test func parsesTabListJSONRegardlessOfKeyOrder() {
+    #expect(ITermParsing.tabs(from: tabListSample) == [
+        TabInfo(index: 0, id: "1", windowID: "pty-89CA3495-C90F-439D-9652-759281746556", isActive: false, sessionCount: 1),
+        TabInfo(index: 1, id: "2", windowID: "pty-89CA3495-C90F-439D-9652-759281746556", isActive: true, sessionCount: 1),
+    ])
+}
+
+@Test func tabsReturnsEmptyForAnEmptyArray() {
+    #expect(ITermParsing.tabs(from: "[]") == [])
+}
+
+@Test func tabsReturnsNilForMalformedJSON() {
+    #expect(ITermParsing.tabs(from: "not json") == nil)
+    #expect(ITermParsing.tabs(from: "") == nil)
+}
+
+// Real captured output from `it2 window list --json` on this machine.
+private let windowListSample = """
+[
+  {
+    "width" : 2560,
+    "x" : 0,
+    "tabs" : 2,
+    "id" : "pty-89CA3495-C90F-439D-9652-759281746556",
+    "y" : 0,
+    "height" : 1404,
+    "is_fullscreen" : true
+  }
+]
+"""
+
+@Test func parsesFirstWindowIDFromWindowList() {
+    #expect(ITermParsing.firstWindowID(from: windowListSample) == "pty-89CA3495-C90F-439D-9652-759281746556")
+}
+
+@Test func firstWindowIDReturnsNilForAnEmptyArray() {
+    #expect(ITermParsing.firstWindowID(from: "[]") == nil)
+}
+
+@Test func firstWindowIDReturnsNilForMalformedJSON() {
+    #expect(ITermParsing.firstWindowID(from: "not json") == nil)
+    #expect(ITermParsing.firstWindowID(from: "") == nil)
+}
+
+// Real captured output from `it2 session get-var tab.id -s <uuid>`: a
+// quoted string, e.g. `"2"`.
+@Test func parsesAQuotedTabID() {
+    #expect(ITermParsing.tabID(from: "\"2\"\n") == "2")
+}
+
+@Test func tabIDReturnsNilForEmptyOutput() {
+    #expect(ITermParsing.tabID(from: "") == nil)
+    #expect(ITermParsing.tabID(from: "   \n") == nil)
+}

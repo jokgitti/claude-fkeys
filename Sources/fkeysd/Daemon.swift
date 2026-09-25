@@ -2,8 +2,8 @@ import Foundation
 import FKeysCore
 
 /// `@unchecked Sendable` only to satisfy `Timer.scheduledTimer`'s `@Sendable`
-/// closure parameter. Every mutation of `registry` happens on the main
-/// thread in practice: DirectoryWatcher's DispatchSource runs its handler on
+/// closure parameter. Every mutation of this class's state happens on the
+/// main thread in practice: DirectoryWatcher's DispatchSource runs its handler on
 /// `.main` (see DirectoryWatcher.swift), the hotkey callback fires on the
 /// main run loop via Carbon's GetEventDispatcherTarget() (see
 /// Hotkeys.swift), and this class's own Timer fires on the main run loop
@@ -12,36 +12,38 @@ import FKeysCore
 /// annotation stops the compiler from catching it.
 final class Daemon: @unchecked Sendable {
     private let stateDir: URL
-    private let registryURL: URL
     private let store: StateStore
     private let iterm: ITermCLI
 
-    private var registry = Registry()
+    /// The frontmost window's tabs, as of the last successful re-derive.
+    /// Kept across a failed it2 call so a hiccup degrades to "stale", never
+    /// to "nothing bound".
+    private var tabs: [TabInfo] = []
+    /// Session uuid → `tab.id`, filled in once per uuid and never dropped
+    /// except when its state file is removed — the mapping only changes if
+    /// the session itself moves to another tab, which a hook restart would
+    /// re-observe anyway.
+    private var uuidToTabID: [String: String] = [:]
+    private var lastUUIDs: Set<String> = []
+
     private var watcher: DirectoryWatcher?
     private var reconcileTimer: Timer?
     private let hotkeys = HotkeyManager()
 
-    /// `registryURL` must live outside `stateDir`: `stateDir` is watched, and
-    /// a write inside it re-triggers the watcher. Saving the registry there
-    /// (or logging there, see launchd/com.lucagaleazzi.fkeys.plist.in) is an
-    /// unbounded refresh-save-refresh loop, not a one-off self-trigger.
-    init(stateDir: URL, registryURL: URL, iterm: ITermCLI = ITermCLI()) {
+    init(stateDir: URL, iterm: ITermCLI = ITermCLI()) {
         self.stateDir = stateDir
-        self.registryURL = registryURL
         self.store = StateStore(dir: stateDir)
         self.iterm = iterm
     }
 
     func start() {
-        loadRegistry()
-
         // Created before the first refresh(): its init creates stateDir, and
-        // refresh() saves the registry into it. On a fresh machine with no
-        // ~/.claude/.fkeys yet, refresh() first would try to save into a
-        // directory that doesn't exist yet, and that write fails silently.
+        // a fresh machine with no ~/.claude/.fkeys yet needs it to exist
+        // before anything scans it.
         watcher = DirectoryWatcher(dir: stateDir) { [weak self] in self?.refresh() }
         if watcher == nil { log("could not watch \(stateDir.path); falling back to the 10s loop only") }
 
+        rederiveTabs()
         refresh()
 
         // Assigned before registerFunctionKeys() so a keypress that arrives between
@@ -55,81 +57,85 @@ final class Daemon: @unchecked Sendable {
         }
     }
 
-    /// Bind new sessions, unbind gone ones, then push the lights.
-    ///
-    /// The hook triggers this on every PreToolUse/PostToolUse, and most of
-    /// those calls bind nothing new and release nothing — the session's file
-    /// already exists and still exists. `changed` gates the save on those,
-    /// so a no-op refresh costs a directory scan, not a disk write too.
+    /// Cheap path: no it2 work. The hook triggers this on every
+    /// PreToolUse/PostToolUse, and most of those calls change no session's
+    /// existence, only its state (working → idle) — that costs a directory
+    /// scan, never an it2 round trip. Re-deriving tab positions only happens
+    /// when the set of live session uuids actually changed.
     func refresh() {
         let states = store.scan()
-        var changed = false
-
-        // Sorted so assignment is deterministic when several sessions appear at once.
-        for uuid in states.keys.sorted() where registry.key(for: uuid) == nil {
-            if let key = registry.assign(uuid) {
-                log("F\(key) -> \(uuid)")
-                changed = true
-            } else {
-                log("no free F-key for \(uuid); \(Registry.capacity) already bound")
-            }
+        let uuids = Set(states.keys)
+        if uuids != lastUUIDs {
+            lastUUIDs = uuids
+            rederiveTabs()
         }
-        for uuid in Array(registry.byKey.values) where states[uuid] == nil {
-            registry.release(uuid)
-            changed = true
-        }
-
-        if changed { saveRegistry() }
         publish(states)
     }
 
-    /// SessionEnd is not guaranteed, so drop keys whose session no longer exists.
+    /// Re-derives tab positions: refreshes the frontmost window's tab list,
+    /// then fills in a `tab.id` for any uuid not already cached. A failed or
+    /// unreachable it2 call leaves the previous tabs/cache in place — see
+    /// ITermCLI.frontmostWindowTabs.
+    private func rederiveTabs() {
+        if let fresh = iterm.frontmostWindowTabs() {
+            tabs = fresh
+        }
+        for uuid in lastUUIDs where uuidToTabID[uuid] == nil {
+            if let tabID = iterm.tabID(forSessionUUID: uuid) {
+                uuidToTabID[uuid] = tabID
+            }
+        }
+    }
+
+    /// SessionEnd is not guaranteed — kill -9, a closed window and a crash
+    /// all skip it — so without this, a dead session's state file leaks
+    /// until the daemon restarts. Also the 10s tab re-derive: up to 10s of
+    /// staleness after a tab close or drag is accepted.
     func reconcile() {
         let live = iterm.liveSessionUUIDs()
-        // An empty result means iTerm is gone or it2 failed. Treat it as unknown,
-        // not as "every session died", or one it2 hiccup clears the whole F-row.
-        guard !live.isEmpty else { return }
-
-        let released = registry.reconcile(liveUUIDs: live)
-        guard !released.isEmpty else { return }
-        for uuid in released {
-            log("released \(uuid): no longer in it2 session list")
-            try? FileManager.default.removeItem(at: stateDir.appendingPathComponent("\(uuid).json"))
+        // An empty result means iTerm is gone or it2 failed. Treat it as
+        // unknown, not as "every session died", or one it2 hiccup deletes
+        // every state file.
+        if !live.isEmpty {
+            let dead = store.scan().keys.filter { !live.contains($0) }
+            for uuid in dead {
+                log("dropped \(uuid): no longer in it2 session list")
+                try? FileManager.default.removeItem(at: stateDir.appendingPathComponent("\(uuid).json"))
+                uuidToTabID.removeValue(forKey: uuid)
+            }
         }
-        saveRegistry()
+        rederiveTabs()
         publish(store.scan())
     }
 
     func statusReport() -> String {
-        // `status` builds a fresh Daemon that never calls start(), so this is
-        // the only place its registry gets loaded from disk.
-        loadRegistry()
         let states = store.scan()
-        return (1...Registry.capacity).map { key in
-            guard let uuid = registry.uuid(forKey: key) else { return "F\(key)  —" }
-            return "F\(key)  \(uuid)  \(states[uuid]?.rawValue ?? "unknown")"
+        guard let tabs = iterm.frontmostWindowTabs() else {
+            return "iTerm2 not reachable via it2 — bindings unknown."
+        }
+        var uuidToTabID: [String: String] = [:]
+        for uuid in states.keys {
+            if let tabID = iterm.tabID(forSessionUUID: uuid) {
+                uuidToTabID[uuid] = tabID
+            }
+        }
+        let slots = KeyBinding.derive(tabs: tabs, uuidToTabID: uuidToTabID, states: states)
+        return slots.enumerated().map { offset, slot in
+            let key = offset + 1
+            guard let uuid = slot.uuid else {
+                let tabExists = tabs.contains { $0.index == slot.tabIndex }
+                return "F\(key)  tab \(slot.tabIndex)  \(tabExists ? "(no session)" : "(no tab)")"
+            }
+            return "F\(key)  tab \(slot.tabIndex)  \(uuid)  \(slot.state?.rawValue ?? "unknown")"
         }.joined(separator: "\n")
     }
 
     private func focus(_ key: Int) {
-        guard let uuid = registry.uuid(forKey: key) else { return }
-        iterm.focus(uuid)
+        iterm.gotoTab(key - 1)
     }
 
     /// Filled in by Task 9, once the firmware exists.
     private func publish(_ states: [String: SessionState]) {}
-
-    private func loadRegistry() {
-        guard let data = try? Data(contentsOf: registryURL),
-              let saved = try? JSONDecoder().decode(Registry.self, from: data)
-        else { return }
-        registry = saved
-    }
-
-    private func saveRegistry() {
-        guard let data = try? JSONEncoder().encode(registry) else { return }
-        try? data.write(to: registryURL, options: .atomic)
-    }
 
     private func log(_ message: String) {
         print("fkeysd: \(message)")

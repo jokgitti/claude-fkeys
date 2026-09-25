@@ -18,10 +18,6 @@ func envOverride(_ name: String) -> URL? {
 // test harness needs another way to point the daemon at a temp directory.
 let stateDir = envOverride("FKEYS_STATE_DIR")
     ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude/.fkeys")
-// Outside stateDir on purpose: stateDir is watched, and anything the daemon
-// itself writes there re-triggers that watcher. See Daemon.swift's init doc.
-let registryURL = envOverride("FKEYS_REGISTRY")
-    ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude/fkeys-registry.json")
 let paletteURL = envOverride("FKEYS_PALETTE")
     ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".config/fkeys/palette.json")
 
@@ -59,15 +55,20 @@ var daemon: Daemon?
 
 switch arguments.first {
 case "status":
-    print(Daemon(stateDir: stateDir, registryURL: registryURL).statusReport())
+    print(Daemon(stateDir: stateDir).statusReport())
 
 case "--dry-run":
     let states = StateStore(dir: stateDir).scan()
-    let registry: Registry = (try? Data(contentsOf: registryURL))
-        .flatMap { try? JSONDecoder().decode(Registry.self, from: $0) } ?? Registry()
-    let keyStates = (1...HIDProtocol.keyCount).map { key in
-        KeyState(registry.uuid(forKey: key).flatMap { states[$0] })
+    let iterm = ITermCLI()
+    let tabs = iterm.frontmostWindowTabs() ?? []
+    var uuidToTabID: [String: String] = [:]
+    for uuid in states.keys {
+        if let tabID = iterm.tabID(forSessionUUID: uuid) {
+            uuidToTabID[uuid] = tabID
+        }
     }
+    let slots = KeyBinding.derive(tabs: tabs, uuidToTabID: uuidToTabID, states: states)
+    let keyStates = slots.map { KeyState($0.state) }
     print("SET_PALETTE  \(describe(HIDProtocol.encodePalette(Palette.load(from: paletteURL))))")
     print("SET_STATES   \(describe(HIDProtocol.encodeStates(keyStates)))")
 
@@ -118,7 +119,7 @@ case .none:
     // without a Dock icon or a menu bar.
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
-    daemon = Daemon(stateDir: stateDir, registryURL: registryURL)
+    daemon = Daemon(stateDir: stateDir)
     daemon?.start()
     app.run()
 
