@@ -25,7 +25,11 @@ with no Claude session keeps its position and stays dark.
 
 - `~/.claude/.fkeys/` — the hook's per-session state files. The daemon
   watches this directory; nothing else may write here, since a write inside
-  it re-triggers the watcher.
+  it re-triggers the watcher. `SessionEnd` normally removes a session's file;
+  for the cases that skip it (crash, `kill -9`, a closed window), the 10s
+  reconcile loop cross-checks `it2 session list` and deletes any file whose
+  session is no longer live. This is separate from key assignment — it just
+  keeps the directory from leaking stale files.
 - `~/.claude/fkeys.log` — daemon stdout/stderr under launchd, kept outside
   the watched directory for the same reason.
 

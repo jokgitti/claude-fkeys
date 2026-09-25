@@ -20,6 +20,9 @@ let stateDir = envOverride("FKEYS_STATE_DIR")
     ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude/.fkeys")
 let paletteURL = envOverride("FKEYS_PALETTE")
     ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".config/fkeys/palette.json")
+// Lets the contract harness point the daemon at a stub `it2` instead of the
+// real iTerm CLI, without a keyboard or a live iTerm session.
+let it2Binary = envOverride("FKEYS_IT2")?.path ?? ITermCLI.defaultBinary
 
 func fail(_ message: String) -> Never {
     FileHandle.standardError.write("fkeysd: \(message)\n".data(using: .utf8)!)
@@ -55,11 +58,11 @@ var daemon: Daemon?
 
 switch arguments.first {
 case "status":
-    print(Daemon(stateDir: stateDir).statusReport())
+    print(Daemon(stateDir: stateDir, iterm: ITermCLI(binary: it2Binary)).statusReport())
 
 case "--dry-run":
     let states = StateStore(dir: stateDir).scan()
-    let iterm = ITermCLI()
+    let iterm = ITermCLI(binary: it2Binary)
     let tabs = iterm.frontmostWindowTabs() ?? []
     var uuidToTabID: [String: String] = [:]
     for uuid in states.keys {
@@ -119,7 +122,7 @@ case .none:
     // without a Dock icon or a menu bar.
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
-    daemon = Daemon(stateDir: stateDir)
+    daemon = Daemon(stateDir: stateDir, iterm: ITermCLI(binary: it2Binary))
     daemon?.start()
     app.run()
 
