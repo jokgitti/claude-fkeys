@@ -2,14 +2,17 @@ import AppKit
 import Foundation
 import FKeysCore
 
-let stateDir = URL(fileURLWithPath: NSHomeDirectory())
-    .appendingPathComponent(".claude/.fkeys")
+// Each path is overridable by environment variable, falling back to the
+// NSHomeDirectory()-derived default: NSHomeDirectory() ignores $HOME, so a
+// test harness needs another way to point the daemon at a temp directory.
+let stateDir = ProcessInfo.processInfo.environment["FKEYS_STATE_DIR"].map(URL.init(fileURLWithPath:))
+    ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude/.fkeys")
 // Outside stateDir on purpose: stateDir is watched, and anything the daemon
 // itself writes there re-triggers that watcher. See Daemon.swift's init doc.
-let registryURL = URL(fileURLWithPath: NSHomeDirectory())
-    .appendingPathComponent(".claude/fkeys-registry.json")
-let paletteURL = URL(fileURLWithPath: NSHomeDirectory())
-    .appendingPathComponent(".config/fkeys/palette.json")
+let registryURL = ProcessInfo.processInfo.environment["FKEYS_REGISTRY"].map(URL.init(fileURLWithPath:))
+    ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude/fkeys-registry.json")
+let paletteURL = ProcessInfo.processInfo.environment["FKEYS_PALETTE"].map(URL.init(fileURLWithPath:))
+    ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".config/fkeys/palette.json")
 
 func fail(_ message: String) -> Never {
     FileHandle.standardError.write("fkeysd: \(message)\n".data(using: .utf8)!)
