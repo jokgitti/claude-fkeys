@@ -65,6 +65,26 @@ echo "== building fkeysd (debug) =="
 
 FKEYSD="$ROOT/.build/debug/fkeysd"
 
+# An empty string is not the same as unset for a plain environment lookup:
+# `FKEYS_STATE_DIR=""` used to resolve to the process's cwd instead of
+# falling back to the default (see main.swift's envOverride). Compares two
+# live invocations against whatever the real ~/.claude/~/.config happen to
+# hold rather than asserting fixed bytes, since that ambient state isn't
+# ours to fix -- but a wrapper script or plist that exports one of these
+# three blank must behave exactly as if it hadn't, and this is read-only
+# (--dry-run never writes).
+echo "== verifying an empty FKEYS_* override is treated as unset =="
+BASELINE=$(env -u FKEYS_STATE_DIR -u FKEYS_REGISTRY -u FKEYS_PALETTE "$FKEYSD" --dry-run)
+EMPTY_OVERRIDE=$(FKEYS_STATE_DIR= FKEYS_REGISTRY= FKEYS_PALETTE= "$FKEYSD" --dry-run)
+if [ "$BASELINE" = "$EMPTY_OVERRIDE" ]; then
+    echo "ok    empty FKEYS_* vars behave as unset (match the real defaults)"
+else
+    echo "FAIL  empty FKEYS_* vars diverged from unset:"
+    echo "  unset: $BASELINE"
+    echo "  empty: $EMPTY_OVERRIDE"
+    FAIL=1
+fi
+
 echo "== running fkeysd --dry-run against the fixture =="
 DRYRUN=$(FKEYS_STATE_DIR="$STATE_DIR" FKEYS_REGISTRY="$REGISTRY" FKEYS_PALETTE="$PALETTE" "$FKEYSD" --dry-run)
 echo "$DRYRUN" >&2
@@ -92,11 +112,17 @@ run_case() {
 
 run_case "mixed registry"        mixed          "$PALETTE_HEX" "$STATES_HEX"
 run_case "compiled-in default palette (no SET_PALETTE sent)" defaults "$STATES_HEX"
-run_case "led_min/led_max window" window        "$PALETTE_HEX" "$STATES_HEX" 20 45
+# [23, 44) pins both edges on real LED indices rather than landing in a gap
+# between them: 23 is F4's own index (must be included, F3 at 18 excluded)
+# and 44 is F8's own index (must be excluded, F7 at 39 included). A window
+# like [20, 45) never touches an actual index and can't catch an off-by-one
+# in the bound check.
+run_case "led_min/led_max window" window        "$PALETTE_HEX" "$STATES_HEX" 23 44
 run_case "watchdog: no report ever" watchdog_none
 run_case "watchdog: stale report" watchdog_stale "$PALETTE_HEX" "$STATES_HEX"
 run_case "watchdog: fresh report" watchdog_fresh "$PALETTE_HEX" "$STATES_HEX"
 run_case "watchdog: exact boundary" watchdog_boundary "$PALETTE_HEX" "$STATES_HEX"
+run_case "watchdog: timer_read32 wraparound" watchdog_wraparound "$PALETTE_HEX" "$STATES_HEX"
 run_case "pulse sampled over one period" pulse   "$PALETTE_HEX" "$STATES_HEX"
 run_case "malformed command byte"        malformed "$PALETTE_HEX" "$STATES_HEX"
 run_case "short report (length < 13)"    short     "$PALETTE_HEX" "$STATES_HEX"

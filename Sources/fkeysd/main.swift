@@ -2,16 +2,27 @@ import AppKit
 import Foundation
 import FKeysCore
 
+// An empty string counts as "set" for a plain environment lookup, and
+// URL(fileURLWithPath: "") silently resolves to the process's current
+// working directory rather than failing. Treat empty as unset, so a wrapper
+// script, plist, or CI job that exports one of these three blank falls back
+// to the documented default instead of a wrong-but-valid path with no
+// diagnostic.
+func envOverride(_ name: String) -> URL? {
+    guard let value = ProcessInfo.processInfo.environment[name], !value.isEmpty else { return nil }
+    return URL(fileURLWithPath: value)
+}
+
 // Each path is overridable by environment variable, falling back to the
 // NSHomeDirectory()-derived default: NSHomeDirectory() ignores $HOME, so a
 // test harness needs another way to point the daemon at a temp directory.
-let stateDir = ProcessInfo.processInfo.environment["FKEYS_STATE_DIR"].map(URL.init(fileURLWithPath:))
+let stateDir = envOverride("FKEYS_STATE_DIR")
     ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude/.fkeys")
 // Outside stateDir on purpose: stateDir is watched, and anything the daemon
 // itself writes there re-triggers that watcher. See Daemon.swift's init doc.
-let registryURL = ProcessInfo.processInfo.environment["FKEYS_REGISTRY"].map(URL.init(fileURLWithPath:))
+let registryURL = envOverride("FKEYS_REGISTRY")
     ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude/fkeys-registry.json")
-let paletteURL = ProcessInfo.processInfo.environment["FKEYS_PALETTE"].map(URL.init(fileURLWithPath:))
+let paletteURL = envOverride("FKEYS_PALETTE")
     ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".config/fkeys/palette.json")
 
 func fail(_ message: String) -> Never {

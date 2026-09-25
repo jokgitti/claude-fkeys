@@ -332,6 +332,29 @@ static void scenario_watchdog_boundary(const char *palette_hex, const char *stat
     }
 }
 
+// timer_read32() wraps every ~49 days of uptime. fkeys_leds.c's watchdog
+// check, `(uint32_t)(timer_read32() - fkey_last_report) > FKEYS_TIMEOUT_MS`,
+// relies on unsigned subtraction already wrapping modulo 2^32 (matching
+// QMK's own timer_elapsed32/TIMER_DIFF_32) rather than a naive
+// `timer_read32() > fkey_last_report + FKEYS_TIMEOUT_MS`, which would
+// misfire once fkey_last_report + FKEYS_TIMEOUT_MS itself overflows. That
+// was verified by hand; this converts the proof into a regression test.
+static void scenario_watchdog_wraparound(const char *palette_hex, const char *states_hex) {
+    reset_calls();
+    g_mock_time = (uint32_t)(UINT32_MAX - 500); // last report just before the clock wraps
+    feed(palette_hex, 32);
+    feed(states_hex, 32);
+
+    g_mock_time = 200; // clock has wrapped past UINT32_MAX; ~701ms really elapsed
+    fkeys_paint(0, 255);
+    if (g_call_count != FKEYS_COUNT) {
+        fail("watchdog-wraparound: expected %d calls once the clock wraps past UINT32_MAX with a fresh report, got %d",
+             FKEYS_COUNT, g_call_count);
+    } else {
+        ok("watchdog-wraparound: elapsed survives a timer_read32() wraparound");
+    }
+}
+
 static void scenario_pulse(const char *palette_hex, const char *states_hex) {
     g_mock_time = 0;
     feed(palette_hex, 32);
@@ -502,6 +525,8 @@ int main(int argc, char **argv) {
         scenario_watchdog_fresh(argv[2], argv[3]);
     } else if (strcmp(scenario, "watchdog_boundary") == 0 && argc == 4) {
         scenario_watchdog_boundary(argv[2], argv[3]);
+    } else if (strcmp(scenario, "watchdog_wraparound") == 0 && argc == 4) {
+        scenario_watchdog_wraparound(argv[2], argv[3]);
     } else if (strcmp(scenario, "pulse") == 0 && argc == 4) {
         scenario_pulse(argv[2], argv[3]);
     } else if (strcmp(scenario, "malformed") == 0 && argc == 4) {
