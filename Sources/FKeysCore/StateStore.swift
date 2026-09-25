@@ -8,8 +8,10 @@ public struct StateStore: Sendable {
         self.dir = dir
     }
 
-    /// The daemon's own registry.json and the hook's `.tmp.<pid>` files share this
-    /// directory, so only names shaped like `<uuid>.json` are read.
+    /// The registry now lives at ~/.claude/fkeys-registry.json, outside this
+    /// directory — but the hook's `.tmp.<pid>` files still land here, and any
+    /// other non-session file that shows up here must not be read as state,
+    /// so only names shaped like `<uuid>.json` are read.
     static func sessionUUID(fromFilename name: String) -> String? {
         guard name.hasSuffix(".json") else { return nil }
         let stem = String(name.dropLast(5))

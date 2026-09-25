@@ -52,9 +52,9 @@ private let uuidB = "11111111-2222-3333-4444-555555555555"
     let dir = try makeTempDir()
     defer { try? FileManager.default.removeItem(at: dir) }
     try write(#"{"state":"idle","ts":1}"#, to: dir, named: "\(uuidA).json")
-    try write(#"{"1":"\#(uuidA)"}"#, to: dir, named: "registry.json")
+    try write(#"{"1":"\#(uuidA)"}"#, to: dir, named: "notes.json")
     try write(#"{"state":"idle","ts":1}"#, to: dir, named: "\(uuidA).json.tmp.4242")
-    try write("log line", to: dir, named: "fkeysd.log")
+    try write("log line", to: dir, named: "scratch.log")
     #expect(StateStore(dir: dir).scan() == [uuidA: .idle])
 }
 
