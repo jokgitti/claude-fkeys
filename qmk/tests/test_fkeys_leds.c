@@ -32,9 +32,13 @@ static paint_call_t g_calls[MAX_CALLS];
 static int g_call_count = 0;
 static uint32_t g_mock_time = 0;
 
-void rgb_matrix_set_color(uint8_t index, uint8_t r, uint8_t g, uint8_t b) {
+// Signature matches QMK's real quantum/rgb_matrix/rgb_matrix.h declaration
+// (index is `int`, not `uint8_t` — see fkeys_leds.h). Recorded LED indices
+// are always small (<98, see fkey_led), so narrowing back to uint8_t for
+// storage changes no behaviour.
+void rgb_matrix_set_color(int index, uint8_t r, uint8_t g, uint8_t b) {
     if (g_call_count < MAX_CALLS) {
-        g_calls[g_call_count++] = (paint_call_t){index, r, g, b};
+        g_calls[g_call_count++] = (paint_call_t){(uint8_t)index, r, g, b};
     }
 }
 

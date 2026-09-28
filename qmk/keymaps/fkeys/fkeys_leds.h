@@ -8,8 +8,10 @@
 #include <stdint.h>
 
 // Provided by QMK's rgb_matrix driver / timer subsystem in the firmware
-// build, and by stubs in the native test build.
-void rgb_matrix_set_color(uint8_t index, uint8_t r, uint8_t g, uint8_t b);
+// build, and by stubs in the native test build. Signatures must match QMK's
+// own declarations exactly (quantum/rgb_matrix/rgb_matrix.h, quantum/timer.h)
+// — QMK is the authority here, not this header.
+void rgb_matrix_set_color(int index, uint8_t r, uint8_t g, uint8_t b);
 uint32_t timer_read32(void);
 
 enum fkeys_command {
