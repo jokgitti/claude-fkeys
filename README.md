@@ -17,6 +17,18 @@ for: SessionStart, PreToolUse, PostToolUse, Notification, PermissionRequest,
 Stop, SubagentStop, SessionEnd. The entry must use `"async": true` to prevent
 the hook from blocking the tool-call path.
 
+**Then restart any Claude sessions that were already running.** Claude Code
+reads its hook configuration when a session starts, so a session that predates
+the `settings.json` edit never runs the hook — it stays unbound for its whole
+life, and its key stays dark, with no error anywhere. Sessions started
+afterwards pick it up with no action needed. This is not "it binds on first
+activity"; it never binds.
+
+The keyboard shows nothing but bound F-keys. Every other LED is held black,
+including the side strips, and that holds on any machine — plug it into a
+different computer and it stays completely dark. It types normally there.
+The Fn layer's RGB keycodes are inert. `firmware/README.md` covers going back.
+
 F<n> is bound to tab index n-1 of the frontmost iTerm2 window — the
 binding is derived from iTerm each time it's needed, never stored. A tab
 with no Claude session keeps its position and stays dark.
