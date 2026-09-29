@@ -50,7 +50,7 @@ private final class FakeSink: ReportSink {
         p.publish(states(.working))
         #expect(sink.sent.isEmpty)
         p.tick()
-        #expect(sink.commands == [0x02, 0x01])
+        #expect(sink.commands == [0x02, 0x03, 0x01])
     }
 
     @Test func unchangedStatesAreNotRewritten() {
@@ -60,9 +60,9 @@ private final class FakeSink: ReportSink {
         p.publish(states(.working))
         p.publish(states(.working))
         p.publish(states(.working))
-        #expect(sink.commands == [0x02, 0x01])
+        #expect(sink.commands == [0x02, 0x03, 0x01])
         p.publish(states(.idle))
-        #expect(sink.commands == [0x02, 0x01, 0x01])
+        #expect(sink.commands == [0x02, 0x03, 0x01, 0x01])
     }
 
     @Test func tickKeepsAliveWithCurrentStates() {
@@ -71,8 +71,8 @@ private final class FakeSink: ReportSink {
         p.tick()
         p.publish(states(.working))
         p.tick()
-        #expect(sink.commands == [0x02, 0x01, 0x01])
-        #expect(sink.sent[2] == HIDProtocol.encodeStates(states(.working)))
+        #expect(sink.commands == [0x02, 0x03, 0x01, 0x01])
+        #expect(sink.sent[3] == HIDProtocol.encodeStates(states(.working)))
     }
 
     @Test func absentKeyboardIsRetriedAndNothingSent() {
@@ -86,7 +86,7 @@ private final class FakeSink: ReportSink {
         #expect(sink.sent.isEmpty)
         sink.present = true
         p.tick()
-        #expect(sink.commands == [0x02, 0x01])
+        #expect(sink.commands == [0x02, 0x03, 0x01])
     }
 
     @Test func failedWriteDropsLinkAndReconnectResendsPaletteAndStates() {
@@ -97,10 +97,10 @@ private final class FakeSink: ReportSink {
         p.publish(states(.working))
         #expect(!sink.isOpen)
         p.publish(states(.idle))
-        #expect(sink.commands == [0x02])
+        #expect(sink.commands == [0x02, 0x03])
         p.tick()
-        #expect(sink.commands == [0x02, 0x02, 0x01])
-        #expect(sink.sent[2] == HIDProtocol.encodeStates(states(.idle)))
+        #expect(sink.commands == [0x02, 0x03, 0x02, 0x03, 0x01])
+        #expect(sink.sent[4] == HIDProtocol.encodeStates(states(.idle)))
     }
 
     @Test func failedPaletteWriteIsNotFatalAndIsRetriedInTheSameTick() {
@@ -109,16 +109,24 @@ private final class FakeSink: ReportSink {
         let p = make(sink)
         p.tick()
         #expect(sink.isOpen)
-        #expect(sink.commands == [0x02])
+        #expect(sink.commands == [0x02, 0x03])
+    }
+
+    @Test func failedPulseWriteIsRetriedAndThePulseIsResent() {
+        let sink = FakeSink()
+        sink.failSendNumber = 2 // palette ok, pulse fails
+        let p = make(sink)
+        p.tick()
+        #expect(sink.commands == [0x02, 0x02, 0x03])
     }
 
     @Test func stateFailureInTickAfterPaletteSuccessIsRetriedImmediately() {
         let sink = FakeSink()
         let p = make(sink)
         p.publish(states(.working))
-        sink.failSendNumber = 2 // palette ok, states fail
+        sink.failSendNumber = 3 // palette, pulse ok, states fail
         p.tick()
-        #expect(sink.commands == [0x02, 0x02, 0x01])
+        #expect(sink.commands == [0x02, 0x03, 0x02, 0x03, 0x01])
         #expect(sink.isOpen)
     }
 
@@ -136,7 +144,7 @@ private final class FakeSink: ReportSink {
         let p = make(sink)
         p.tick()
         p.tick()
-        #expect(sink.commands == [0x02])
+        #expect(sink.commands == [0x02, 0x03])
     }
 
     @Test func aStatePublishedWhileClosedIsDeliveredOnReconnect() {
@@ -147,7 +155,7 @@ private final class FakeSink: ReportSink {
         p.publish(states(.waiting))
         sink.present = true
         p.tick()
-        #expect(sink.commands == [0x02, 0x01])
-        #expect(sink.sent[1] == HIDProtocol.encodeStates(states(.waiting)))
+        #expect(sink.commands == [0x02, 0x03, 0x01])
+        #expect(sink.sent[2] == HIDProtocol.encodeStates(states(.waiting)))
     }
 }

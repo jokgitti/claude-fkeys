@@ -67,3 +67,40 @@ import Foundation
     let p = Palette.load(from: url)
     #expect(p == Palette.default)
 }
+
+private func loadJSON(_ json: String) throws -> Palette {
+    let url = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("palette-pulse-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: url) }
+    try json.write(to: url, atomically: true, encoding: .utf8)
+    return Palette.load(from: url)
+}
+
+private let colours = "\"off\":\"#010101\",\"working\":\"#020202\",\"idle\":\"#030303\",\"waiting\":\"#040404\""
+
+@Test func readsThePulseBlock() throws {
+    let p = try loadJSON("{\(colours),\"pulse\":{\"period_ms\":900,\"floor\":30}}")
+    #expect(p.pulse == PulseSettings(periodMs: 900, floor: 30))
+    #expect(p.waiting == RGB(r: 4, g: 4, b: 4))
+}
+
+@Test func aMissingPulseKeyFallsBackToTheDefaultPulseAndKeepsTheColours() throws {
+    let p = try loadJSON("{\(colours)}")
+    #expect(p.pulse == .default)
+    #expect(p.off == RGB(r: 1, g: 1, b: 1))
+}
+
+@Test func outOfRangeOrMalformedPulseValuesFallBackPerField() throws {
+    #expect(try loadJSON("{\(colours),\"pulse\":{\"period_ms\":0,\"floor\":30}}").pulse == PulseSettings(periodMs: 700, floor: 30))
+    #expect(try loadJSON("{\(colours),\"pulse\":{\"period_ms\":99999,\"floor\":30}}").pulse == PulseSettings(periodMs: 700, floor: 30))
+    #expect(try loadJSON("{\(colours),\"pulse\":{\"period_ms\":900,\"floor\":256}}").pulse == PulseSettings(periodMs: 900, floor: 0))
+    #expect(try loadJSON("{\(colours),\"pulse\":{\"period_ms\":900,\"floor\":-1}}").pulse == PulseSettings(periodMs: 900, floor: 0))
+    #expect(try loadJSON("{\(colours),\"pulse\":{\"period_ms\":\"fast\"}}").pulse == .default)
+    #expect(try loadJSON("{\(colours),\"pulse\":5}").pulse == .default)
+}
+
+@Test func theShippedConfigMatchesTheDefaults() throws {
+    let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().appendingPathComponent("config/palette.json")
+    #expect(Palette.load(from: url) == Palette.default)
+}

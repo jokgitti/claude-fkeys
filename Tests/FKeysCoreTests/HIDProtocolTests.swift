@@ -45,3 +45,16 @@ import Testing
     #expect(indices == indices.sorted())
     #expect(indices.allSatisfy { (0...97).contains($0) })
 }
+
+@Test func encodesThePulseAsLittleEndianPeriodThenFloor() {
+    let report = HIDProtocol.encodePulse(PulseSettings(periodMs: 0x0384, floor: 30)) // 900 ms
+    #expect(report.count == 32)
+    #expect(report[0] == 0x03)
+    #expect(Array(report[1...3]) == [0x84, 0x03, 30])
+    #expect(Array(report[4...31]).allSatisfy { $0 == 0 })
+}
+
+@Test func defaultPulseIs700msWithFloorZero() {
+    let report = HIDProtocol.encodePulse(.default)
+    #expect(Array(report[0...3]) == [0x03, 0xBC, 0x02, 0])
+}

@@ -5,6 +5,8 @@ Binds F1–F12 on a GMMK Pro to Claude Code sessions in iTerm2.
 - Press F<n> to focus the session bound to that key.
 - The key's LED shows the session's state: orange working, green idle,
   magenta pulsing when it is blocked on a permission prompt or a question.
+  The pulse is a triangle wave from fully dark to full colour every 700 ms
+  by default.
 
 Design: `~/.claude/plans/2026-09-21-claude-fkeys-design.md`
 
@@ -36,6 +38,19 @@ confirmed on hardware. `firmware/README.md` covers going back.
 F<n> is bound to tab index n-1 of the frontmost iTerm2 window — the
 binding is derived from iTerm each time it's needed, never stored. A tab
 with no Claude session keeps its position and stays dark.
+
+## Tuning the pulse
+
+`~/.config/fkeys/palette.json` takes an optional block next to the colours:
+
+    "pulse": { "period_ms": 700, "floor": 0 }
+
+`period_ms` is 50-10000. `floor` is 0-255: the brightness at the darkest point
+of the wave, 0 being fully dark. A missing or out-of-range field falls back to
+its default. The daemon sends the values to the keyboard on every connect, so a
+change applies after `launchctl kickstart -k gui/$(id -u)/com.lucagaleazzi.fkeys`
+(or a keyboard replug); no reflash. Requires the firmware from this commit or
+later; older firmware ignores the setting.
 
 ## Files
 

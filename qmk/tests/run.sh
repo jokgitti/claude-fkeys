@@ -59,7 +59,8 @@ cat > "$PALETTE" <<'EOF'
   "off": "#112233",
   "working": "#445566",
   "idle": "#778899",
-  "waiting": "#aabbcc"
+  "waiting": "#aabbcc",
+  "pulse": { "period_ms": 900, "floor": 30 }
 }
 EOF
 
@@ -144,9 +145,10 @@ DRYRUN=$(FKEYS_STATE_DIR="$STATE_DIR" FKEYS_IT2="$IT2_STUB" FKEYS_PALETTE="$PALE
 echo "$DRYRUN" >&2
 
 PALETTE_HEX=$(echo "$DRYRUN" | awk '/^SET_PALETTE/ { $1=""; print }')
+PULSE_HEX=$(echo "$DRYRUN" | awk '/^SET_PULSE/ { $1=""; print }')
 STATES_HEX=$(echo "$DRYRUN" | awk '/^SET_STATES/ { $1=""; print }')
 
-if [ -z "$PALETTE_HEX" ] || [ -z "$STATES_HEX" ]; then
+if [ -z "$PALETTE_HEX" ] || [ -z "$PULSE_HEX" ] || [ -z "$STATES_HEX" ]; then
     echo "FAIL  could not parse fkeysd --dry-run output" >&2
     exit 1
 fi
@@ -177,7 +179,9 @@ run_case "watchdog: stale report" watchdog_stale "$PALETTE_HEX" "$STATES_HEX"
 run_case "watchdog: fresh report" watchdog_fresh "$PALETTE_HEX" "$STATES_HEX"
 run_case "watchdog: exact boundary" watchdog_boundary "$PALETTE_HEX" "$STATES_HEX"
 run_case "watchdog: timer_read32 wraparound" watchdog_wraparound "$PALETTE_HEX" "$STATES_HEX"
-run_case "pulse sampled over one period" pulse   "$PALETTE_HEX" "$STATES_HEX"
+run_case "pulse: fixture period and floor from fkeysd" pulse "$PALETTE_HEX" "$STATES_HEX" "$PULSE_HEX"
+run_case "pulse: compiled-in defaults (no SET_PULSE sent)" pulse_defaults "$STATES_HEX"
+run_case "pulse: hand-crafted SET_PULSE (byte order, rejects)" pulse_raw "$STATES_HEX"
 run_case "malformed command byte"        malformed "$PALETTE_HEX" "$STATES_HEX"
 run_case "short report (length < 13)"    short     "$PALETTE_HEX" "$STATES_HEX"
 

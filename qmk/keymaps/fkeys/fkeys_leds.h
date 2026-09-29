@@ -17,6 +17,11 @@ uint32_t timer_read32(void);
 enum fkeys_command {
     FKEYS_CMD_SET_STATES  = 0x01,
     FKEYS_CMD_SET_PALETTE = 0x02,
+    // data[1..2] pulse period in ms, unsigned 16-bit LITTLE-endian (low byte
+    // first); data[3] floor, the brightness scale (0-255) at the trough;
+    // data[4..] reserved, ignored. A period below FKEYS_PULSE_MIN_MS rejects
+    // the whole report and keeps the previous values.
+    FKEYS_CMD_SET_PULSE   = 0x03,
 };
 
 #define FKEYS_COUNT           12
@@ -24,8 +29,10 @@ enum fkeys_command {
 #define FKEYS_LED_COUNT       98
 #define FKEYS_PALETTE_SLOTS    4
 #define FKEYS_TIMEOUT_MS   10000
-#define FKEYS_PULSE_MS      1500
-#define FKEYS_PULSE_FLOOR     51   // 20% of 255
+// Defaults until a SET_PULSE arrives.
+#define FKEYS_PULSE_MS       700
+#define FKEYS_PULSE_FLOOR      0
+#define FKEYS_PULSE_MIN_MS     2   // half-period must be non-zero
 #define FKEYS_STATE_WAITING    3
 
 // LED indices for F1..F12 on gmmk/pro/rev1/ansi. Verified in step 7 (hardware

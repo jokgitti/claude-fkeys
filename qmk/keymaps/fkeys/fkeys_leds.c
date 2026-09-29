@@ -11,6 +11,8 @@ static uint8_t  fkey_palette[FKEYS_PALETTE_SLOTS][3] = {
     {  0, 215,  95},   // idle
     {255,   0, 170},   // waiting
 };
+static uint16_t fkey_pulse_ms    = FKEYS_PULSE_MS;
+static uint8_t  fkey_pulse_floor = FKEYS_PULSE_FLOOR;
 static uint32_t fkey_last_report  = 0;
 static bool     fkey_have_report  = false;
 
@@ -33,6 +35,14 @@ void fkeys_receive(const uint8_t *data, uint8_t length) {
             }
             break;
 
+        case FKEYS_CMD_SET_PULSE: {
+            uint16_t period = (uint16_t)(data[1] | (data[2] << 8));
+            if (period < FKEYS_PULSE_MIN_MS) return;
+            fkey_pulse_ms    = period;
+            fkey_pulse_floor = data[3];
+            break;
+        }
+
         default:
             return;
     }
@@ -41,12 +51,12 @@ void fkeys_receive(const uint8_t *data, uint8_t length) {
     fkey_have_report = true;
 }
 
-// Triangle wave over FKEYS_PULSE_MS, from FKEYS_PULSE_FLOOR to 255.
+// Triangle wave over fkey_pulse_ms, from fkey_pulse_floor to 255.
 static uint8_t fkey_pulse(void) {
-    uint16_t half  = FKEYS_PULSE_MS / 2;
-    uint16_t phase = timer_read32() % FKEYS_PULSE_MS;
-    uint16_t tri   = (phase < half) ? phase : (FKEYS_PULSE_MS - phase);
-    return FKEYS_PULSE_FLOOR + (uint32_t)tri * (255 - FKEYS_PULSE_FLOOR) / half;
+    uint16_t half  = fkey_pulse_ms / 2;
+    uint16_t phase = timer_read32() % fkey_pulse_ms;
+    uint16_t tri   = (phase < half) ? phase : (fkey_pulse_ms - phase);
+    return fkey_pulse_floor + (uint32_t)tri * (255 - fkey_pulse_floor) / half;
 }
 
 bool fkeys_paint(uint8_t led_min, uint8_t led_max) {

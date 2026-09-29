@@ -42,17 +42,63 @@ public struct RGB: Equatable, Sendable, Codable {
     }
 }
 
+/// Waiting-state pulse: a triangle wave between `floor` (0-255, the
+/// brightness scale at the trough) and 255, repeating every `periodMs`.
+/// Each field falls back to its default on its own when missing or out of range.
+public struct PulseSettings: Equatable, Sendable, Codable {
+    public static let periodRange = 50...10_000
+    public static let floorRange = 0...255
+
+    public var periodMs: Int
+    public var floor: Int
+
+    public static let `default` = PulseSettings(periodMs: 700, floor: 0)
+
+    public init(periodMs: Int, floor: Int) {
+        self.periodMs = periodMs
+        self.floor = floor
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case periodMs = "period_ms"
+        case floor
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let period = (try? c.decode(Int.self, forKey: .periodMs)).flatMap { Self.periodRange.contains($0) ? $0 : nil }
+        let floor = (try? c.decode(Int.self, forKey: .floor)).flatMap { Self.floorRange.contains($0) ? $0 : nil }
+        self.periodMs = period ?? Self.default.periodMs
+        self.floor = floor ?? Self.default.floor
+    }
+}
+
 public struct Palette: Equatable, Sendable, Codable {
     public var off: RGB
     public var working: RGB
     public var idle: RGB
     public var waiting: RGB
+    public var pulse: PulseSettings
 
-    public init(off: RGB, working: RGB, idle: RGB, waiting: RGB) {
+    public init(off: RGB, working: RGB, idle: RGB, waiting: RGB, pulse: PulseSettings = .default) {
         self.off = off
         self.working = working
         self.idle = idle
         self.waiting = waiting
+        self.pulse = pulse
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case off, working, idle, waiting, pulse
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        off = try c.decode(RGB.self, forKey: .off)
+        working = try c.decode(RGB.self, forKey: .working)
+        idle = try c.decode(RGB.self, forKey: .idle)
+        waiting = try c.decode(RGB.self, forKey: .waiting)
+        pulse = (try? c.decode(PulseSettings.self, forKey: .pulse)) ?? .default
     }
 
     public static let `default` = Palette(
@@ -63,7 +109,8 @@ public struct Palette: Equatable, Sendable, Codable {
     )
 
     /// A missing or malformed file falls back to the default: a typo in the
-    /// config must not leave the F-row dark with no explanation.
+    /// config must not leave the F-row dark with no explanation. A bad `pulse`
+    /// block falls back alone and keeps the colours.
     public static func load(from url: URL) -> Palette {
         guard let data = try? Data(contentsOf: url),
               let parsed = try? JSONDecoder().decode(Palette.self, from: data)

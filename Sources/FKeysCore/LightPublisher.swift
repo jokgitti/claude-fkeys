@@ -49,7 +49,10 @@ public final class LightPublisher {
     private func attempt() -> Attempt {
         if !sink.isOpen {
             guard sink.open() else { return .noDevice }
-            guard sink.send(HIDProtocol.encodePalette(palette())) else { markLost(); return .sendFailed }
+            let current = palette()
+            guard sink.send(HIDProtocol.encodePalette(current)),
+                  sink.send(HIDProtocol.encodePulse(current.pulse))
+            else { markLost(); return .sendFailed }
             lastSent = nil
             if !connected {
                 connected = true

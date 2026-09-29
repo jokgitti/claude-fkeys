@@ -5,7 +5,7 @@ flash any of them to an ISO board or a rev 2.
 
 | File | What it is | What you get |
 |---|---|---|
-| `gmmk_pro_rev1_ansi_fkeys.bin` | This project's firmware | Normal typing. All RGB is off except F-keys bound to a Claude session, which show its state colour. Without a running `fkeysd` the whole keyboard is dark. |
+| `gmmk_pro_rev1_ansi_fkeys.bin` | This project's firmware | Normal typing. All RGB is off except F-keys bound to a Claude session, which show its state colour (the waiting state pulses from fully dark to full colour every 700 ms by default; period and floor are set from `palette.json`, not by reflashing). Without a running `fkeysd` the whole keyboard is dark. |
 | `gmmk_pro_rev1_ansi_default.bin` | QMK's stock keymap for this board | Normal keyboard, normal RGB. No Claude integration. Nothing from this project. |
 | `GMMK_PRO_ANSI_stock_V0035_DFU.bin` | Glorious's own firmware | The keyboard as it shipped, including Glorious Core support |
 

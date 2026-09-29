@@ -72,7 +72,9 @@ case "--dry-run":
     }
     let slots = KeyBinding.derive(tabs: tabs, uuidToTabID: uuidToTabID, states: states)
     let keyStates = slots.map { KeyState($0.state) }
-    print("SET_PALETTE  \(describe(HIDProtocol.encodePalette(Palette.load(from: paletteURL))))")
+    let palette = Palette.load(from: paletteURL)
+    print("SET_PALETTE  \(describe(HIDProtocol.encodePalette(palette)))")
+    print("SET_PULSE    \(describe(HIDProtocol.encodePulse(palette.pulse)))")
     print("SET_STATES   \(describe(HIDProtocol.encodeStates(keyStates)))")
 
 case "poke":
@@ -85,7 +87,9 @@ case "poke":
     }
     var states = [KeyState](repeating: .off, count: HIDProtocol.keyCount)
     states[key - 1] = state
-    sendOrExplain(HIDProtocol.encodePalette(Palette.load(from: paletteURL)))
+    let pokePalette = Palette.load(from: paletteURL)
+    sendOrExplain(HIDProtocol.encodePalette(pokePalette))
+    sendOrExplain(HIDProtocol.encodePulse(pokePalette.pulse))
     sendOrExplain(HIDProtocol.encodeStates(states))
 
 case "poke-led":
@@ -104,6 +108,7 @@ case "poke-led":
     var states = [KeyState](repeating: .off, count: HIDProtocol.keyCount)
     states[key] = .working
     sendOrExplain(HIDProtocol.encodePalette(palette))
+    sendOrExplain(HIDProtocol.encodePulse(palette.pulse))
     sendOrExplain(HIDProtocol.encodeStates(states))
 
 case "--help", "-h":

@@ -2,5 +2,9 @@
   "off": "#000000",
   "working": "#ff9500",
   "idle": "#00d75f",
-  "waiting": "#ff00aa"
+  "waiting": "#ff00aa",
+  "pulse": {
+    "period_ms": 700,
+    "floor": 0
+  }
 }

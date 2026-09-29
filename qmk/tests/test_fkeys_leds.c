@@ -94,9 +94,15 @@ static const uint8_t expected_led[FKEYS_COUNT] = {
 // from the contract, deriving expectations from the same macro under test
 // would hide the drift instead of catching it.
 #define EXPECT_TIMEOUT_MS      10000
-#define EXPECT_PULSE_MS         1500
-#define EXPECT_PULSE_FLOOR        51
+// Defaults when no SET_PULSE has been received (user-chosen: 700 ms, floor 0).
+#define EXPECT_DEFAULT_PULSE_MS    700
+#define EXPECT_DEFAULT_PULSE_FLOOR   0
+// The fixture pulse from run.sh's palette.json ("period_ms": 900, "floor": 30),
+// distinct from the defaults so a decoder ignoring the report cannot pass.
+#define EXPECT_FIXTURE_PULSE_MS    900
+#define EXPECT_FIXTURE_PULSE_FLOOR  30
 #define EXPECT_CMD_SET_STATES   0x01
+#define EXPECT_CMD_SET_PULSE    0x03
 
 // Finds the final recorded call for `index` (the colour QMK ends up with, since
 // a later rgb_matrix_set_color overwrites an earlier one), or NULL if that
@@ -212,9 +218,18 @@ static const rgb_t PAL_WORKING = {0x44, 0x55, 0x66};
 static const rgb_t PAL_IDLE    = {0x77, 0x88, 0x99};
 static const rgb_t PAL_WAITING = {0xAA, 0xBB, 0xCC};
 
+// The last SET_STATES fed, replayed by waiting_at() as a keepalive so long
+// sampling spans do not trip the 10 s watchdog.
+static uint8_t g_states_report[64];
+static int g_states_report_len = 0;
+
 static void feed(const char *hex, int max_len) {
     uint8_t buf[64];
     int n = parse_hex(hex, buf, max_len < 64 ? max_len : 64);
+    if (n > 0 && buf[0] == EXPECT_CMD_SET_STATES) {
+        memcpy(g_states_report, buf, (size_t)n);
+        g_states_report_len = n;
+    }
     fkeys_receive(buf, (uint8_t)n);
 }
 
@@ -233,11 +248,11 @@ static void scenario_mixed(const char *palette_hex, const char *states_hex) {
     feed(palette_hex, 32);
     feed(states_hex, 32);
 
-    // t=750 is exactly half of FKEYS_PULSE_MS: the triangle wave peaks at
+    // t=350 is exactly half of the default 700 ms pulse period: the triangle wave peaks at
     // 255 there, so the waiting LED reads as the unscaled palette colour
     // and every index can be asserted with a single exact RGB, including
     // the pulsing one.
-    g_mock_time = 750;
+    g_mock_time = 350;
     bool r = fkeys_paint(0, 255);
     if (!r) fail("mixed: fkeys_paint returned false");
 
@@ -275,7 +290,7 @@ static void scenario_defaults(const char *states_hex) {
     g_mock_time = 0;
     feed(states_hex, 32); // SET_STATES only; SET_PALETTE deliberately never sent.
 
-    g_mock_time = 750; // pulse peak, see scenario_mixed
+    g_mock_time = 350; // pulse peak, see scenario_mixed
     fkeys_paint(0, 255);
 
     assert_painted("defaults: F1 working",  LED_F1,  DEFAULT_WORKING.r, DEFAULT_WORKING.g, DEFAULT_WORKING.b);
@@ -305,7 +320,7 @@ static void scenario_window(const char *palette_hex, const char *states_hex, int
     feed(palette_hex, 32);
     feed(states_hex, 32);
 
-    g_mock_time = 750; // pulse peak, see scenario_mixed
+    g_mock_time = 350; // pulse peak, see scenario_mixed
     fkeys_paint((uint8_t)led_min, (uint8_t)led_max);
 
     // Inside the window: F-row LEDs carry a state colour (any painted colour;
@@ -419,90 +434,176 @@ static void scenario_watchdog_wraparound(const char *palette_hex, const char *st
     }
 }
 
-static void scenario_pulse(const char *palette_hex, const char *states_hex) {
+// Waiting-key colour at time t, all channels.
+static paint_call_t waiting_at(uint32_t t) {
+    reset_calls();
+    g_mock_time = t;
+    fkeys_receive(g_states_report, (uint8_t)g_states_report_len);
+    fkeys_paint(0, 255);
+    paint_call_t *w = find_call(LED_F3);
+    if (!w) { fail("pulse: F3 not painted at t=%u", (unsigned)t); return (paint_call_t){0}; }
+    return *w;
+}
+
+static bool same_rgb(paint_call_t a, paint_call_t b) {
+    return a.r == b.r && a.g == b.g && a.b == b.b;
+}
+
+// Checks a pulse of `period` ms and `floor` (0-255) against PAL_WAITING:
+// trough at t=0 scaled by floor/255, peak at t=period/2 unscaled, periodic,
+// monotone up then down, bounded, and not periodic at half the period.
+static void check_pulse(const char *tag, uint32_t period, int floor_scale, rgb_t colour) {
+    char label[96];
+    int want_min_r = colour.r * floor_scale / 255;
+    int want_min_g = colour.g * floor_scale / 255;
+    int want_min_b = colour.b * floor_scale / 255;
+
+    paint_call_t trough = waiting_at(0);
+    snprintf(label, sizeof label, "%s: trough at t=0 is the colour scaled by floor %d", tag, floor_scale);
+    if (trough.r != want_min_r || trough.g != want_min_g || trough.b != want_min_b) {
+        fail("%s (got %d,%d,%d want %d,%d,%d)", label, trough.r, trough.g, trough.b, want_min_r, want_min_g, want_min_b);
+    } else ok(label);
+
+    paint_call_t peak = waiting_at(period / 2);
+    snprintf(label, sizeof label, "%s: peak at t=period/2 is the full colour", tag);
+    if (peak.r != colour.r || peak.g != colour.g || peak.b != colour.b) {
+        fail("%s (got %d,%d,%d)", label, peak.r, peak.g, peak.b);
+    } else ok(label);
+
+    bool periodic = true, bounded = true, rising = true, falling = true;
+    int prev = -1;
+    bool past_peak = false;
+    for (uint32_t t = 0; t <= period; t += (period / 60 ? period / 60 : 1)) {
+        paint_call_t now = waiting_at(t);
+        paint_call_t later = waiting_at(t + period);
+        paint_call_t much_later = waiting_at(t + 5 * period);
+        if (!same_rgb(now, later) || !same_rgb(now, much_later)) periodic = false;
+        if (now.r < want_min_r || now.r > colour.r || now.g < want_min_g || now.g > colour.g ||
+            now.b < want_min_b || now.b > colour.b) bounded = false;
+        if (colour.r) {
+            // The first sample past the midpoint may straddle the peak, so
+            // it is exempt from the falling check.
+            if (t <= period / 2 && prev > now.r) rising = false;
+            if (t > period / 2 && past_peak && prev < now.r) falling = false;
+            if (t > period / 2) past_peak = true;
+            prev = now.r;
+        }
+    }
+    snprintf(label, sizeof label, "%s: repeats every %u ms", tag, (unsigned)period);
+    if (!periodic) fail("%s", label); else ok(label);
+    snprintf(label, sizeof label, "%s: stays between the trough and the full colour", tag);
+    if (!bounded) fail("%s", label); else ok(label);
+    snprintf(label, sizeof label, "%s: rises to the midpoint then falls (triangle)", tag);
+    if (!rising || !falling) fail("%s", label); else ok(label);
+
+    if (floor_scale < 255) {
+        snprintf(label, sizeof label, "%s: not periodic at half the period", tag);
+        if (same_rgb(waiting_at(0), waiting_at(period / 2))) fail("%s", label); else ok(label);
+    }
+}
+
+// Other states must not vary with time: only `waiting` pulses.
+static void check_others_constant(const char *tag, uint32_t period) {
+    char label[96];
+    paint_call_t first_k = {0}, first_i = {0}, first_o = {0};
+    bool kv = false, iv = false, ov = false, have = false;
+    for (uint32_t t = 0; t < period; t += 7) {
+        reset_calls();
+        g_mock_time = t;
+        fkeys_receive(g_states_report, (uint8_t)g_states_report_len);
+        fkeys_paint(0, 255);
+        paint_call_t *k = find_call(LED_F1), *i = find_call(LED_F2), *o = find_call(LED_F4);
+        if (!k || !i || !o) { fail("%s: sampled indices not painted at t=%u", tag, (unsigned)t); return; }
+        if (!have) { first_k = *k; first_i = *i; first_o = *o; have = true; }
+        else {
+            if (!same_rgb(*k, first_k)) kv = true;
+            if (!same_rgb(*i, first_i)) iv = true;
+            if (!same_rgb(*o, first_o)) ov = true;
+        }
+    }
+    snprintf(label, sizeof label, "%s: working LED is constant over time", tag);
+    if (kv) fail("%s", label); else ok(label);
+    snprintf(label, sizeof label, "%s: idle LED is constant over time", tag);
+    if (iv) fail("%s", label); else ok(label);
+    snprintf(label, sizeof label, "%s: off LED is constant over time", tag);
+    if (ov) fail("%s", label); else ok(label);
+}
+
+// SET_PULSE bytes come from fkeysd --dry-run for the fixture config.
+static void scenario_pulse(const char *palette_hex, const char *states_hex, const char *pulse_hex) {
     g_mock_time = 0;
     feed(palette_hex, 32);
+    feed(pulse_hex, 32);
+    feed(states_hex, 32);
+    check_pulse("pulse(fixture 900 ms, floor 30)", EXPECT_FIXTURE_PULSE_MS, EXPECT_FIXTURE_PULSE_FLOOR, PAL_WAITING);
+    check_others_constant("pulse(fixture)", EXPECT_FIXTURE_PULSE_MS);
+}
+
+// No SET_PULSE ever sent: compiled-in defaults, 700 ms and floor 0, so the
+// key goes fully dark at the trough.
+static void scenario_pulse_defaults(const char *states_hex) {
+    g_mock_time = 0;
+    feed(states_hex, 32);
+    check_pulse("pulse(defaults 700 ms, floor 0)", EXPECT_DEFAULT_PULSE_MS, EXPECT_DEFAULT_PULSE_FLOOR,
+                (rgb_t){DEFAULT_WAITING.r, DEFAULT_WAITING.g, DEFAULT_WAITING.b});
+    paint_call_t dark = waiting_at(0);
+    if (dark.r || dark.g || dark.b) fail("pulse-defaults: waiting key not fully dark at the trough");
+    else ok("pulse-defaults: waiting key is fully dark at the trough");
+    check_others_constant("pulse(defaults)", EXPECT_DEFAULT_PULSE_MS);
+}
+
+static void send_pulse(uint8_t lo, uint8_t hi, uint8_t floor_byte) {
+    uint8_t report[32] = {0};
+    report[0] = EXPECT_CMD_SET_PULSE;
+    report[1] = lo;
+    report[2] = hi;
+    report[3] = floor_byte;
+    fkeys_receive(report, sizeof report);
+}
+
+// Hand-crafted: pins byte order and the reject rule independently of fkeysd.
+static void scenario_pulse_raw(const char *states_hex) {
+    g_mock_time = 0;
     feed(states_hex, 32);
 
-    int floor_r = (PAL_WAITING.r * EXPECT_PULSE_FLOOR) / 255;
-    int floor_g = (PAL_WAITING.g * EXPECT_PULSE_FLOOR) / 255;
-    int floor_b = (PAL_WAITING.b * EXPECT_PULSE_FLOOR) / 255;
+    // 0x0100 = 256 ms sent low byte first. Big-endian decoding would read
+    // 0x0001 = 1 ms and be rejected; a swapped read of 0x0001 would differ.
+    send_pulse(0x00, 0x01, 0);
+    check_pulse("pulse-raw(256 ms, little-endian)", 256, 0,
+                (rgb_t){DEFAULT_WAITING.r, DEFAULT_WAITING.g, DEFAULT_WAITING.b});
 
-    int min_r = 256, min_g = 256, min_b = 256;
-    int max_r = -1, max_g = -1, max_b = -1;
-    bool any_zero = false;
-    bool waiting_varied = false;
-    paint_call_t first_working = {0}, first_idle = {0}, first_off = {0};
-    bool working_varied = false, idle_varied = false, off_varied = false;
-    bool have_first = false;
+    // A period of 0 (would divide by zero) and 1 (half-period 0) are rejected
+    // and leave the 256 ms pulse in force.
+    send_pulse(0x00, 0x00, 0);
+    check_pulse("pulse-raw(period 0 rejected, still 256 ms)", 256, 0,
+                (rgb_t){DEFAULT_WAITING.r, DEFAULT_WAITING.g, DEFAULT_WAITING.b});
+    send_pulse(0x01, 0x00, 0);
+    check_pulse("pulse-raw(period 1 rejected, still 256 ms)", 256, 0,
+                (rgb_t){DEFAULT_WAITING.r, DEFAULT_WAITING.g, DEFAULT_WAITING.b});
 
-    for (int t = 0; t < EXPECT_PULSE_MS; t += 10) {
-        reset_calls();
-        g_mock_time = (uint32_t)t;
-        fkeys_paint(0, 255);
+    // The smallest accepted period is 2 ms; paint must not fault.
+    g_mock_time = 0;
+    send_pulse(0x02, 0x00, 0);
+    reset_calls();
+    g_mock_time = 5;
+    fkeys_paint(0, 255);
+    if (g_call_count != EXPECT_LED_COUNT + FKEYS_COUNT) fail("pulse-raw: period 2 painted %d calls", g_call_count);
+    else ok("pulse-raw: period 2 is accepted and paints normally");
 
-        paint_call_t *w = find_call(LED_F3); // waiting
-        paint_call_t *k = find_call(LED_F1); // working
-        paint_call_t *i = find_call(LED_F2); // idle
-        paint_call_t *o = find_call(LED_F4); // off
-        if (!w || !k || !i || !o) { fail("pulse: expected all four sampled indices painted at t=%d", t); continue; }
+    // Longest period, 0xFFFF, with a mid floor.
+    send_pulse(0xFF, 0xFF, 128);
+    check_pulse("pulse-raw(65535 ms, floor 128)", 65535, 128,
+                (rgb_t){DEFAULT_WAITING.r, DEFAULT_WAITING.g, DEFAULT_WAITING.b});
 
-        if (w->r < min_r) min_r = w->r; if (w->r > max_r) max_r = w->r;
-        if (w->g < min_g) min_g = w->g; if (w->g > max_g) max_g = w->g;
-        if (w->b < min_b) min_b = w->b; if (w->b > max_b) max_b = w->b;
-        if (w->r == 0 && PAL_WAITING.r != 0) any_zero = true;
-        if (w->g == 0 && PAL_WAITING.g != 0) any_zero = true;
-        if (w->b == 0 && PAL_WAITING.b != 0) any_zero = true;
-
-        if (!have_first) {
-            first_working = *k; first_idle = *i; first_off = *o;
-            have_first = true;
-        } else {
-            if (k->r != first_working.r || k->g != first_working.g || k->b != first_working.b) working_varied = true;
-            if (i->r != first_idle.r || i->g != first_idle.g || i->b != first_idle.b) idle_varied = true;
-            if (o->r != first_off.r || o->g != first_off.g || o->b != first_off.b) off_varied = true;
-        }
-        if (t > 0 && (min_r != max_r || min_g != max_g || min_b != max_b)) waiting_varied = true;
+    // Floor is a full byte: 255 means no dimming at all.
+    send_pulse(0xBC, 0x02, 255);
+    reset_calls();
+    bool flat = true;
+    for (uint32_t t = 0; t < 700; t += 13) {
+        paint_call_t w = waiting_at(t);
+        if (w.r != DEFAULT_WAITING.r || w.g != DEFAULT_WAITING.g || w.b != DEFAULT_WAITING.b) flat = false;
     }
-
-    if (any_zero) fail("pulse: waiting LED hit exactly 0 on a nonzero channel, floor should prevent that");
-    else ok("pulse: waiting LED never goes fully dark");
-
-    if (min_r < floor_r || min_g < floor_g || min_b < floor_b) {
-        fail("pulse: waiting LED dipped below the 20%% floor (%d,%d,%d), got min (%d,%d,%d)", floor_r, floor_g, floor_b, min_r, min_g, min_b);
-    } else {
-        ok("pulse: waiting LED never dips below the 20% floor");
-    }
-
-    if (max_r > PAL_WAITING.r || max_g > PAL_WAITING.g || max_b > PAL_WAITING.b) {
-        fail("pulse: waiting LED exceeded 100%% of configured colour (%d,%d,%d), got max (%d,%d,%d)",
-             PAL_WAITING.r, PAL_WAITING.g, PAL_WAITING.b, max_r, max_g, max_b);
-    } else {
-        ok("pulse: waiting LED never exceeds the configured colour");
-    }
-
-    // Confirm the sampled range actually reaches close to both ends, so this
-    // isn't trivially satisfied by a pulse that barely moves.
-    if (max_r < PAL_WAITING.r - 2 && PAL_WAITING.r > floor_r + 2) {
-        fail("pulse: sampled max_r=%d never got near the configured %d", max_r, PAL_WAITING.r);
-    } else {
-        ok("pulse: sampled range reaches near the configured colour");
-    }
-    if (min_r > floor_r + 2 && PAL_WAITING.r > floor_r + 2) {
-        fail("pulse: sampled min_r=%d never got near the floor %d", min_r, floor_r);
-    } else {
-        ok("pulse: sampled range reaches near the floor");
-    }
-
-    if (!waiting_varied) fail("pulse: waiting LED colour did not vary across the sampled period");
-    else ok("pulse: waiting LED colour varies over time");
-
-    if (working_varied) fail("pulse: working LED colour varied over time, it should be constant");
-    else ok("pulse: working LED colour is constant over time");
-    if (idle_varied) fail("pulse: idle LED colour varied over time, it should be constant");
-    else ok("pulse: idle LED colour is constant over time");
-    if (off_varied) fail("pulse: off LED colour varied over time, it should be constant");
-    else ok("pulse: off LED colour is constant over time");
+    if (!flat) fail("pulse-raw: floor 255 should not dim"); else ok("pulse-raw: floor 255 does not dim");
 }
 
 // Hand-crafted: fkeysd never emits an unknown command byte. Uses the real
@@ -513,7 +614,7 @@ static void scenario_malformed(const char *palette_hex, const char *states_hex) 
     feed(states_hex, 32);
 
     reset_calls();
-    g_mock_time = 750;
+    g_mock_time = 350;
     fkeys_paint(0, 255);
     static paint_call_t before[MAX_CALLS];
     int before_count = g_call_count;
@@ -525,7 +626,7 @@ static void scenario_malformed(const char *palette_hex, const char *states_hex) 
     fkeys_receive(bogus, sizeof bogus);
 
     reset_calls();
-    g_mock_time = 750;
+    g_mock_time = 350;
     fkeys_paint(0, 255);
 
     bool same = (g_call_count == before_count && before_count == EXPECT_LED_COUNT + FKEYS_COUNT);
@@ -546,7 +647,7 @@ static void scenario_short(const char *palette_hex, const char *states_hex) {
     feed(states_hex, 32);
 
     reset_calls();
-    g_mock_time = 750;
+    g_mock_time = 350;
     fkeys_paint(0, 255);
     static paint_call_t before[MAX_CALLS];
     int before_count = g_call_count;
@@ -556,7 +657,7 @@ static void scenario_short(const char *palette_hex, const char *states_hex) {
     fkeys_receive(shortReport, sizeof shortReport);
 
     reset_calls();
-    g_mock_time = 750;
+    g_mock_time = 350;
     fkeys_paint(0, 255);
 
     bool same = (g_call_count == before_count && before_count == EXPECT_LED_COUNT + FKEYS_COUNT);
@@ -593,8 +694,12 @@ int main(int argc, char **argv) {
         scenario_watchdog_boundary(argv[2], argv[3]);
     } else if (strcmp(scenario, "watchdog_wraparound") == 0 && argc == 4) {
         scenario_watchdog_wraparound(argv[2], argv[3]);
-    } else if (strcmp(scenario, "pulse") == 0 && argc == 4) {
-        scenario_pulse(argv[2], argv[3]);
+    } else if (strcmp(scenario, "pulse") == 0 && argc == 5) {
+        scenario_pulse(argv[2], argv[3], argv[4]);
+    } else if (strcmp(scenario, "pulse_defaults") == 0 && argc == 3) {
+        scenario_pulse_defaults(argv[2]);
+    } else if (strcmp(scenario, "pulse_raw") == 0 && argc == 3) {
+        scenario_pulse_raw(argv[2]);
     } else if (strcmp(scenario, "malformed") == 0 && argc == 4) {
         scenario_malformed(argv[2], argv[3]);
     } else if (strcmp(scenario, "short") == 0 && argc == 4) {

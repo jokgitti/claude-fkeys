@@ -23,6 +23,7 @@ public enum HIDProtocol {
 
     static let commandSetStates: UInt8 = 0x01
     static let commandSetPalette: UInt8 = 0x02
+    static let commandSetPulse: UInt8 = 0x03
 
     /// 12 state bytes, F1 first. The report-id byte is added by the transport,
     /// so byte 0 here is what the firmware sees as `data[0]`.
@@ -45,6 +46,22 @@ public enum HIDProtocol {
             report[2 + index * 3] = colour.g
             report[3 + index * 3] = colour.b
         }
+        return report
+    }
+
+    /// SET_PULSE layout, after the command byte:
+    ///   byte 1..2  period in milliseconds, unsigned 16-bit, LITTLE-endian
+    ///              (low byte first)
+    ///   byte 3     floor: brightness scale at the trough, 0-255
+    ///   byte 4..   reserved, zero; the firmware ignores them
+    /// The firmware rejects a period below 2 ms and keeps its previous values.
+    public static func encodePulse(_ pulse: PulseSettings) -> [UInt8] {
+        var report = [UInt8](repeating: 0, count: reportSize)
+        report[0] = commandSetPulse
+        let period = UInt16(clamping: pulse.periodMs)
+        report[1] = UInt8(period & 0xFF)
+        report[2] = UInt8(period >> 8)
+        report[3] = UInt8(clamping: pulse.floor)
         return report
     }
 
