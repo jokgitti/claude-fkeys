@@ -1,4 +1,4 @@
-// Paints F1-F12 from states pushed by fkeysd over raw HID.
+// Turns every LED off except the bound F-keys, painted from states pushed by fkeysd over raw HID.
 //
 // The host sends states, never animation frames: a 30Hz host-driven pulse in a
 // login daemon burns CPU and stutters whenever the daemon is busy.
@@ -9,6 +9,8 @@
 #include QMK_KEYBOARD_H
 #include "raw_hid.h"
 #include "fkeys_leds.h"
+
+_Static_assert(FKEYS_LED_COUNT == RGB_MATRIX_LED_COUNT, "FKEYS_LED_COUNT must match the board's LED count");
 
 void raw_hid_receive(uint8_t *data, uint8_t length) {
     fkeys_receive(data, length);

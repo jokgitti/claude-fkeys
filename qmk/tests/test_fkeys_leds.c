@@ -98,12 +98,63 @@ static const uint8_t expected_led[FKEYS_COUNT] = {
 #define EXPECT_PULSE_FLOOR        51
 #define EXPECT_CMD_SET_STATES   0x01
 
-// Finds the recorded call for `index`, or NULL if that index was never painted.
+// Finds the final recorded call for `index` (the colour QMK ends up with, since
+// a later rgb_matrix_set_color overwrites an earlier one), or NULL if that
+// index was never painted. fkeys_paint paints black first and F-keys on top,
+// so an F-row index has two calls and the last one is the one that counts.
 static paint_call_t *find_call(uint8_t index) {
-    for (int i = 0; i < g_call_count; i++) {
+    for (int i = g_call_count - 1; i >= 0; i--) {
         if (g_calls[i].index == index) return &g_calls[i];
     }
     return NULL;
+}
+
+static bool is_fkey_led(int index) {
+    for (int i = 0; i < FKEYS_COUNT; i++) {
+        if (expected_led[i] == index) return true;
+    }
+    return false;
+}
+
+// Literal copy of the board's LED count (98 entries in gmmk/pro/rev1/ansi
+// keyboard.json), independent of FKEYS_LED_COUNT for the same reason as EXPECT_*.
+#define EXPECT_LED_COUNT 98
+
+// Asserts every index in [lo, hi) that is not an F-row LED has final colour
+// black, and that nothing at or beyond EXPECT_LED_COUNT was painted.
+static void assert_non_fkeys_black(const char *label, int lo, int hi) {
+    int bad = 0;
+    for (int index = lo; index < hi && index < EXPECT_LED_COUNT; index++) {
+        if (is_fkey_led(index)) continue;
+        paint_call_t *c = find_call((uint8_t)index);
+        if (!c) {
+            fail("%s: index %d was not painted, want black", label, index);
+            bad++;
+        } else if (c->r || c->g || c->b) {
+            fail("%s: index %d got rgb(%d,%d,%d), want black", label, index, c->r, c->g, c->b);
+            bad++;
+        }
+    }
+    for (int i = 0; i < g_call_count; i++) {
+        if (g_calls[i].index >= EXPECT_LED_COUNT) {
+            fail("%s: painted index %d, board has only %d LEDs", label, g_calls[i].index, EXPECT_LED_COUNT);
+            bad++;
+        }
+    }
+    if (!bad) ok(label);
+}
+
+// Asserts the whole board [0, EXPECT_LED_COUNT) is black and exactly one call
+// was made per LED.
+static void assert_all_dark(const char *label) {
+    assert_non_fkeys_black(label, 0, EXPECT_LED_COUNT);
+    for (int i = 0; i < FKEYS_COUNT; i++) {
+        paint_call_t *c = find_call(expected_led[i]);
+        if (!c) fail("%s: F-row index %d was not painted, want black", label, expected_led[i]);
+        else if (c->r || c->g || c->b) fail("%s: F-row index %d got rgb(%d,%d,%d), want black", label, expected_led[i], c->r, c->g, c->b);
+    }
+    if (g_call_count != EXPECT_LED_COUNT) fail("%s: expected %d calls, got %d", label, EXPECT_LED_COUNT, g_call_count);
+    else ok(label);
 }
 
 static void assert_painted(const char *label, uint8_t index, uint8_t r, uint8_t g, uint8_t b) {
@@ -203,10 +254,11 @@ static void scenario_mixed(const char *palette_hex, const char *states_hex) {
     assert_painted("mixed: F11 off (unbound)", LED_F11, PAL_OFF.r, PAL_OFF.g, PAL_OFF.b);
     assert_painted("mixed: F12 off (unbound)", LED_F12, PAL_OFF.r, PAL_OFF.g, PAL_OFF.b);
 
-    if (g_call_count != FKEYS_COUNT) {
-        fail("mixed: expected exactly %d rgb_matrix_set_color calls, got %d", FKEYS_COUNT, g_call_count);
+    assert_non_fkeys_black("mixed: every non-F-row LED is black", 0, 255);
+    if (g_call_count != EXPECT_LED_COUNT + FKEYS_COUNT) {
+        fail("mixed: expected %d calls (98 black + 12 F-row), got %d", EXPECT_LED_COUNT + FKEYS_COUNT, g_call_count);
     } else {
-        ok("mixed: exactly 12 calls, nothing painted at any other index");
+        ok("mixed: 98 black calls + 12 F-row calls, nothing beyond the board");
     }
 }
 
@@ -239,10 +291,11 @@ static void scenario_defaults(const char *states_hex) {
     assert_painted("defaults: F11 off (unbound)", LED_F11, DEFAULT_OFF.r, DEFAULT_OFF.g, DEFAULT_OFF.b);
     assert_painted("defaults: F12 off (unbound)", LED_F12, DEFAULT_OFF.r, DEFAULT_OFF.g, DEFAULT_OFF.b);
 
-    if (g_call_count != FKEYS_COUNT) {
-        fail("defaults: expected exactly %d rgb_matrix_set_color calls, got %d", FKEYS_COUNT, g_call_count);
+    assert_non_fkeys_black("defaults: every non-F-row LED is black", 0, 255);
+    if (g_call_count != EXPECT_LED_COUNT + FKEYS_COUNT) {
+        fail("defaults: expected %d calls (98 black + 12 F-row), got %d", EXPECT_LED_COUNT + FKEYS_COUNT, g_call_count);
     } else {
-        ok("defaults: exactly 12 calls, nothing painted at any other index");
+        ok("defaults: 98 black calls + 12 F-row calls, nothing beyond the board");
     }
 }
 
@@ -255,24 +308,34 @@ static void scenario_window(const char *palette_hex, const char *states_hex, int
     g_mock_time = 750; // pulse peak, see scenario_mixed
     fkeys_paint((uint8_t)led_min, (uint8_t)led_max);
 
+    // Inside the window: F-row LEDs carry a state colour (any painted colour;
+    // exact colours are pinned by "mixed"), every other LED is black.
+    // Outside the window: no call at all, for every LED on the board.
     int expect_count = 0;
+    for (int idx = 0; idx < EXPECT_LED_COUNT; idx++) {
+        char label[80];
+        bool inside = idx >= led_min && idx < led_max;
+        if (inside) {
+            expect_count++;
+            if (is_fkey_led(idx)) expect_count++;
+            continue;
+        }
+        snprintf(label, sizeof label, "window[%d,%d): index %d outside window is untouched", led_min, led_max, idx);
+        assert_not_painted(label, (uint8_t)idx);
+    }
+    assert_non_fkeys_black("window: non-F-row LEDs inside the window are black", led_min, led_max);
     for (int i = 0; i < FKEYS_COUNT; i++) {
         uint8_t idx = expected_led[i];
-        char label[64];
-        if (idx >= led_min && idx < led_max) {
-            expect_count++;
-            snprintf(label, sizeof label, "window[%d,%d): index %d inside window is painted", led_min, led_max, idx);
-            paint_call_t *c = find_call(idx);
-            if (!c) fail("%s", label); else ok(label);
-        } else {
-            snprintf(label, sizeof label, "window[%d,%d): index %d outside window is untouched", led_min, led_max, idx);
-            assert_not_painted(label, idx);
-        }
+        if (idx < led_min || idx >= led_max) continue;
+        char label[80];
+        snprintf(label, sizeof label, "window[%d,%d): F%d inside window has its state colour", led_min, led_max, i + 1);
+        rgb_t want = (i == 0) ? PAL_WORKING : (i == 1) ? PAL_IDLE : (i == 2) ? PAL_WAITING : PAL_OFF;
+        assert_painted(label, idx, want.r, want.g, want.b);
     }
     if (g_call_count != expect_count) {
         fail("window[%d,%d): expected %d calls total, got %d", led_min, led_max, expect_count, g_call_count);
     } else {
-        ok("window: call count matches indices inside the window");
+        ok("window: call count matches LEDs inside the window plus their F-row overpaints");
     }
 }
 
@@ -281,11 +344,7 @@ static void scenario_watchdog_none(void) {
     g_mock_time = 12345;
     bool r = fkeys_paint(0, 255);
     if (!r) fail("watchdog-none: fkeys_paint returned false");
-    if (g_call_count != 0) {
-        fail("watchdog-none: expected 0 calls with no report ever received, got %d", g_call_count);
-    } else {
-        ok("watchdog-none: no report received -> nothing painted");
-    }
+    assert_all_dark("watchdog-none: no report received -> whole board black");
 }
 
 static void scenario_watchdog_stale(const char *palette_hex, const char *states_hex) {
@@ -296,11 +355,7 @@ static void scenario_watchdog_stale(const char *palette_hex, const char *states_
 
     g_mock_time = 1000 + EXPECT_TIMEOUT_MS + 1; // just over the watchdog window
     fkeys_paint(0, 255);
-    if (g_call_count != 0) {
-        fail("watchdog-stale: expected 0 calls once report is older than %dms, got %d", EXPECT_TIMEOUT_MS, g_call_count);
-    } else {
-        ok("watchdog-stale: report older than timeout -> nothing painted");
-    }
+    assert_all_dark("watchdog-stale: report older than timeout -> whole board black");
 }
 
 static void scenario_watchdog_fresh(const char *palette_hex, const char *states_hex) {
@@ -311,10 +366,13 @@ static void scenario_watchdog_fresh(const char *palette_hex, const char *states_
 
     g_mock_time = 1000 + EXPECT_TIMEOUT_MS - 1; // just under the watchdog window
     fkeys_paint(0, 255);
-    if (g_call_count != FKEYS_COUNT) {
-        fail("watchdog-fresh: expected %d calls with a fresh report, got %d", FKEYS_COUNT, g_call_count);
+    assert_painted("watchdog-fresh: F1 shows its state colour", LED_F1, PAL_WORKING.r, PAL_WORKING.g, PAL_WORKING.b);
+    assert_painted("watchdog-fresh: F2 shows its state colour", LED_F2, PAL_IDLE.r, PAL_IDLE.g, PAL_IDLE.b);
+    assert_non_fkeys_black("watchdog-fresh: non-F-row LEDs black", 0, 255);
+    if (g_call_count != EXPECT_LED_COUNT + FKEYS_COUNT) {
+        fail("watchdog-fresh: expected %d calls with a fresh report, got %d", EXPECT_LED_COUNT + FKEYS_COUNT, g_call_count);
     } else {
-        ok("watchdog-fresh: report within timeout -> painting resumes");
+        ok("watchdog-fresh: report within timeout -> F-row painted over black");
     }
 }
 
@@ -329,8 +387,9 @@ static void scenario_watchdog_boundary(const char *palette_hex, const char *stat
 
     g_mock_time = 1000 + EXPECT_TIMEOUT_MS; // elapsed exactly equals the threshold
     fkeys_paint(0, 255);
-    if (g_call_count != FKEYS_COUNT) {
-        fail("watchdog-boundary: expected %d calls at elapsed == timeout exactly, got %d", FKEYS_COUNT, g_call_count);
+    assert_painted("watchdog-boundary: F1 still shows its state colour", LED_F1, PAL_WORKING.r, PAL_WORKING.g, PAL_WORKING.b);
+    if (g_call_count != EXPECT_LED_COUNT + FKEYS_COUNT) {
+        fail("watchdog-boundary: expected %d calls at elapsed == timeout exactly, got %d", EXPECT_LED_COUNT + FKEYS_COUNT, g_call_count);
     } else {
         ok("watchdog-boundary: elapsed == timeout exactly still paints");
     }
@@ -351,9 +410,10 @@ static void scenario_watchdog_wraparound(const char *palette_hex, const char *st
 
     g_mock_time = 200; // clock has wrapped past UINT32_MAX; ~701ms really elapsed
     fkeys_paint(0, 255);
-    if (g_call_count != FKEYS_COUNT) {
+    assert_painted("watchdog-wraparound: F1 still shows its state colour", LED_F1, PAL_WORKING.r, PAL_WORKING.g, PAL_WORKING.b);
+    if (g_call_count != EXPECT_LED_COUNT + FKEYS_COUNT) {
         fail("watchdog-wraparound: expected %d calls once the clock wraps past UINT32_MAX with a fresh report, got %d",
-             FKEYS_COUNT, g_call_count);
+             EXPECT_LED_COUNT + FKEYS_COUNT, g_call_count);
     } else {
         ok("watchdog-wraparound: elapsed survives a timer_read32() wraparound");
     }
@@ -455,7 +515,8 @@ static void scenario_malformed(const char *palette_hex, const char *states_hex) 
     reset_calls();
     g_mock_time = 750;
     fkeys_paint(0, 255);
-    paint_call_t before[FKEYS_COUNT];
+    static paint_call_t before[MAX_CALLS];
+    int before_count = g_call_count;
     memcpy(before, g_calls, sizeof before);
 
     uint8_t bogus[32] = {0};
@@ -467,8 +528,8 @@ static void scenario_malformed(const char *palette_hex, const char *states_hex) 
     g_mock_time = 750;
     fkeys_paint(0, 255);
 
-    bool same = (g_call_count == FKEYS_COUNT);
-    for (int i = 0; same && i < FKEYS_COUNT; i++) {
+    bool same = (g_call_count == before_count && before_count == EXPECT_LED_COUNT + FKEYS_COUNT);
+    for (int i = 0; same && i < before_count; i++) {
         if (g_calls[i].index != before[i].index || g_calls[i].r != before[i].r ||
             g_calls[i].g != before[i].g || g_calls[i].b != before[i].b) {
             same = false;
@@ -487,7 +548,8 @@ static void scenario_short(const char *palette_hex, const char *states_hex) {
     reset_calls();
     g_mock_time = 750;
     fkeys_paint(0, 255);
-    paint_call_t before[FKEYS_COUNT];
+    static paint_call_t before[MAX_CALLS];
+    int before_count = g_call_count;
     memcpy(before, g_calls, sizeof before);
 
     uint8_t shortReport[12] = { EXPECT_CMD_SET_STATES, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2 }; // length 12 < 13
@@ -497,8 +559,8 @@ static void scenario_short(const char *palette_hex, const char *states_hex) {
     g_mock_time = 750;
     fkeys_paint(0, 255);
 
-    bool same = (g_call_count == FKEYS_COUNT);
-    for (int i = 0; same && i < FKEYS_COUNT; i++) {
+    bool same = (g_call_count == before_count && before_count == EXPECT_LED_COUNT + FKEYS_COUNT);
+    for (int i = 0; same && i < before_count; i++) {
         if (g_calls[i].index != before[i].index || g_calls[i].r != before[i].r ||
             g_calls[i].g != before[i].g || g_calls[i].b != before[i].b) {
             same = false;

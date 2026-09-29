@@ -50,7 +50,13 @@ static uint8_t fkey_pulse(void) {
 }
 
 bool fkeys_paint(uint8_t led_min, uint8_t led_max) {
-    // Watchdog: a dead daemon must not leave stale lights on the F-row.
+    // The whole board is dark unless a fresh report binds an F-key. This runs
+    // before the watchdog so it also applies when no report has ever arrived.
+    uint8_t end = (led_max < FKEYS_LED_COUNT) ? led_max : FKEYS_LED_COUNT;
+    for (uint8_t index = led_min; index < end; index++) {
+        rgb_matrix_set_color(index, 0, 0, 0);
+    }
+
     if (!fkey_have_report) return true;
     if ((uint32_t)(timer_read32() - fkey_last_report) > FKEYS_TIMEOUT_MS) return true;
 

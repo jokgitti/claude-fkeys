@@ -20,6 +20,8 @@ enum fkeys_command {
 };
 
 #define FKEYS_COUNT           12
+// Must equal RGB_MATRIX_LED_COUNT; keymap.c asserts it.
+#define FKEYS_LED_COUNT       98
 #define FKEYS_PALETTE_SLOTS    4
 #define FKEYS_TIMEOUT_MS   10000
 #define FKEYS_PULSE_MS      1500
@@ -35,8 +37,10 @@ extern const uint8_t fkey_led[FKEYS_COUNT];
 // full report or with an unknown command byte, per the wire contract.
 void fkeys_receive(const uint8_t *data, uint8_t length);
 
-// Called from keymap.c's rgb_matrix_indicators_advanced_user. Paints the
-// twelve F-row LEDs inside [led_min, led_max) from the last-received state,
-// applying the watchdog and the waiting-state pulse. Always returns true,
+// Called from keymap.c's rgb_matrix_indicators_advanced_user. Paints every LED
+// inside [led_min, led_max) black, then, if the last report is fresh, paints
+// the twelve F-row LEDs inside the window from the last-received state,
+// applying the waiting-state pulse. With no report, or a report older than
+// FKEYS_TIMEOUT_MS, the window stays black. Always returns true,
 // matching QMK's "indicators handled, don't fall through" convention.
 bool fkeys_paint(uint8_t led_min, uint8_t led_max);

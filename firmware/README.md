@@ -5,7 +5,7 @@ flash any of them to an ISO board or a rev 2.
 
 | File | What it is | What you get |
 |---|---|---|
-| `gmmk_pro_rev1_ansi_fkeys.bin` | This project's firmware | Normal keyboard, plus the F-row lit from Claude session state when `fkeysd` is running |
+| `gmmk_pro_rev1_ansi_fkeys.bin` | This project's firmware | Normal typing. All RGB is off except F-keys bound to a Claude session, which show its state colour. Without a running `fkeysd` the whole keyboard is dark. |
 | `gmmk_pro_rev1_ansi_default.bin` | QMK's stock keymap for this board | Normal keyboard, normal RGB. No Claude integration. Nothing from this project. |
 | `GMMK_PRO_ANSI_stock_V0035_DFU.bin` | Glorious's own firmware | The keyboard as it shipped, including Glorious Core support |
 
@@ -106,6 +106,8 @@ separate:
 
 and remove the `fkey-status.sh` entries from `~/.claude/settings.json`.
 
-With this project's firmware flashed but no daemon running, the keyboard behaves
-exactly like QMK's default keymap: the F-row painting only happens after a raw
-HID report arrives, and stops 10 seconds after the last one.
+With this project's firmware flashed but no daemon running, the keyboard types
+normally and every LED is off. The same holds 10 seconds after the last report
+from the daemon, and on any computer that is not running `fkeysd`. The `Fn`-layer
+`RM_*` RGB keys do nothing on this firmware. For normal RGB, flash
+`gmmk_pro_rev1_ansi_default.bin`.
