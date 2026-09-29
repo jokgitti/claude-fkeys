@@ -108,6 +108,12 @@ and remove the `fkey-status.sh` entries from `~/.claude/settings.json`.
 
 With this project's firmware flashed but no daemon running, the keyboard types
 normally and every LED is off. The same holds 10 seconds after the last report
-from the daemon, and on any computer that is not running `fkeysd`. The `Fn`-layer
-`RM_*` RGB keys do nothing on this firmware. For normal RGB, flash
-`gmmk_pro_rev1_ansi_default.bin`.
+from the daemon, and on any computer that is not running `fkeysd`.
+
+The `Fn`-layer `RM_*` RGB keys are still in the keymap. QMK's `rgb_matrix_task`
+runs the indicator callback (`rgb_matrix_indicators_advanced`) only while an
+effect is active. So the RGB toggle key probably stops the F-row lights too:
+toggling RGB off would leave the board dark until it is toggled on again. This
+is from reading QMK's source and has not been confirmed on hardware. The other
+`RM_*` keys change the effect underneath, which is fully overpainted, so they
+have no visible result. For normal RGB, flash `gmmk_pro_rev1_ansi_default.bin`.

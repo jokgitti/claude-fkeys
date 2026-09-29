@@ -1,14 +1,19 @@
 import Foundation
-import FKeysCore
 
 /// Runs iTerm2's bundled `it2` CLI.
 public struct ITermCLI: Sendable {
     public static let defaultBinary = "/Applications/iTerm.app/Contents/Resources/utilities/it2"
 
-    public let binary: String
+    /// Every it2 call runs on the daemon's main queue, next to the keyboard
+    /// keepalive. A call that outlives this is killed and reported as a failure.
+    public static let defaultTimeout: TimeInterval = 2
 
-    public init(binary: String = ITermCLI.defaultBinary) {
+    public let binary: String
+    public let timeout: TimeInterval
+
+    public init(binary: String = ITermCLI.defaultBinary, timeout: TimeInterval = ITermCLI.defaultTimeout) {
         self.binary = binary
+        self.timeout = timeout
     }
 
     /// Empty when iTerm is not running or `it2` fails — the caller must treat
@@ -53,8 +58,10 @@ public struct ITermCLI: Sendable {
         _ = run(["tab", "goto", String(index)])
     }
 
+    /// `nil` on any failure, including a timeout, so callers treat a hung
+    /// `it2` the same as a failed one: "unknown, change nothing".
     @discardableResult
-    private func run(_ arguments: [String]) -> String? {
+    func run(_ arguments: [String]) -> String? {
         guard FileManager.default.isExecutableFile(atPath: binary) else { return nil }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: binary)
@@ -63,9 +70,30 @@ public struct ITermCLI: Sendable {
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
         do { try process.run() } catch { return nil }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+
+        // The read runs off-thread so a child that holds the pipe open after
+        // being killed (a grandchild) cannot block the caller past the timeout.
+        let box = ReadBox()
+        let done = DispatchSemaphore(value: 0)
+        let handle = pipe.fileHandleForReading
+        DispatchQueue.global().async {
+            box.data = handle.readDataToEndOfFile()
+            done.signal()
+        }
+        guard done.wait(timeout: .now() + timeout) == .success else {
+            process.terminate()
+            let pid = process.processIdentifier
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
+                if process.isRunning { kill(pid, SIGKILL) }
+            }
+            return nil
+        }
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { return nil }
-        return String(data: data, encoding: .utf8)
+        return String(data: box.data, encoding: .utf8)
     }
+}
+
+private final class ReadBox: @unchecked Sendable {
+    var data = Data()
 }

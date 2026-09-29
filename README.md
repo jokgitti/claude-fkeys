@@ -27,7 +27,11 @@ activity"; it never binds.
 The keyboard shows nothing but bound F-keys. Every other LED is held black,
 including the side strips, and that holds on any machine — plug it into a
 different computer and it stays completely dark. It types normally there.
-The Fn layer's RGB keycodes are inert. `firmware/README.md` covers going back.
+The Fn layer's RGB keycodes (`RM_*`) are still in the keymap. QMK's
+`rgb_matrix_task` calls the indicator callback only while an effect is active,
+so the RGB toggle key probably switches off the F-row lights as well, until it
+is toggled back on. This is from reading QMK's source and has not been
+confirmed on hardware. `firmware/README.md` covers going back.
 
 F<n> is bound to tab index n-1 of the frontmost iTerm2 window — the
 binding is derived from iTerm each time it's needed, never stored. A tab

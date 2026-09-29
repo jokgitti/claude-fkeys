@@ -35,7 +35,10 @@ final class Daemon: @unchecked Sendable {
 
     /// Also the firmware watchdog's refresh interval: it blanks the board 10 s
     /// after the last report, so an idle daemon must still write inside that.
-    private static let keyboardTick: TimeInterval = 5
+    /// 2 s leaves five writes inside the window; the tolerance bounds how far
+    /// macOS may coalesce the timer.
+    private static let keyboardTick: TimeInterval = 2
+    private static let keyboardTickTolerance: TimeInterval = 0.2
 
     init(stateDir: URL, iterm: ITermCLI = ITermCLI(), paletteURL: URL? = nil) {
         self.stateDir = stateDir
@@ -71,6 +74,7 @@ final class Daemon: @unchecked Sendable {
         keyboardTimer = Timer.scheduledTimer(withTimeInterval: Self.keyboardTick, repeats: true) { [weak self] _ in
             self?.publisher.tick()
         }
+        keyboardTimer?.tolerance = Self.keyboardTickTolerance
     }
 
     /// Cheap path: no it2 work. The hook triggers this on every
@@ -94,10 +98,9 @@ final class Daemon: @unchecked Sendable {
     /// any uuid still uncached. A failed or unreachable it2 call leaves the
     /// previous tabs/cache in place entirely — see ITermCLI.frontmostWindowTabs.
     private func rederiveTabs() {
-        if let fresh = iterm.frontmostWindowTabs() {
-            tabs = fresh
-            uuidToTabID = KeyBinding.invalidateStaleCache(uuidToTabID: uuidToTabID, tabs: tabs)
-        }
+        guard let fresh = iterm.frontmostWindowTabs() else { return }
+        tabs = fresh
+        uuidToTabID = KeyBinding.invalidateStaleCache(uuidToTabID: uuidToTabID, tabs: tabs)
         for uuid in lastUUIDs where uuidToTabID[uuid] == nil {
             if let tabID = iterm.tabID(forSessionUUID: uuid) {
                 uuidToTabID[uuid] = tabID

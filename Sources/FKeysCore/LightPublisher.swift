@@ -14,7 +14,8 @@ public protocol ReportSink: AnyObject {
 /// - `tick` (called on a timer) reopens a closed link, then sends the palette and
 ///   the current states. On an open link it re-sends the current states: the
 ///   firmware blanks the board 10 s after the last report, so an unchanged state
-///   still needs a write more often than that.
+///   still needs a write more often than that. A failed send is retried once
+///   within the same tick.
 /// - A failed write is not fatal. The link stays closed until `tick` reopens it.
 public final class LightPublisher {
     private let sink: ReportSink
@@ -37,32 +38,43 @@ public final class LightPublisher {
         sendStates(states)
     }
 
+    /// A failed send is retried once straight away (reopening, so the palette
+    /// goes out again), not one interval later.
     public func tick() {
+        if attempt() == .sendFailed { _ = attempt() }
+    }
+
+    private enum Attempt { case ok, noDevice, sendFailed }
+
+    private func attempt() -> Attempt {
         if !sink.isOpen {
-            guard sink.open() else { return }
-            guard sink.send(HIDProtocol.encodePalette(palette())) else { markLost(); return }
+            guard sink.open() else { return .noDevice }
+            guard sink.send(HIDProtocol.encodePalette(palette())) else { markLost(); return .sendFailed }
             lastSent = nil
             if !connected {
                 connected = true
                 log("keyboard connected")
             }
         }
-        if let desired { sendStates(desired) }
+        if let desired, !sendStates(desired) { return .sendFailed }
+        return .ok
     }
 
-    private func sendStates(_ states: [KeyState]) {
+    @discardableResult
+    private func sendStates(_ states: [KeyState]) -> Bool {
         if sink.send(HIDProtocol.encodeStates(states)) {
             lastSent = states
-        } else {
-            markLost()
+            return true
         }
+        markLost()
+        return false
     }
 
     private func markLost() {
         lastSent = nil
         if connected {
             connected = false
-            log("keyboard write failed; retrying every tick")
+            log("keyboard write failed; retrying")
         }
     }
 }
