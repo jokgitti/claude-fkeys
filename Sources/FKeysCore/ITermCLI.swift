@@ -38,10 +38,19 @@ public struct ITermCLI: Sendable {
     /// Slack frontmost, `app get-focus` printed "No current window" on every
     /// call, while `window list --json` returned the real window regardless.
     public func frontmostWindowTabs() -> [TabInfo]? {
-        guard let windowOutput = run(["window", "list", "--json"]),
-              let windowID = ITermParsing.firstWindowID(from: windowOutput),
-              let listOutput = run(["tab", "list", "--json"]),
-              let allTabs = ITermParsing.tabs(from: listOutput)
+        guard let windowID = frontmostWindowID() else { return nil }
+        return tabs(inWindow: windowID)
+    }
+
+    /// One `it2` call. `nil` on any failure.
+    public func frontmostWindowID() -> String? {
+        run(["window", "list", "--json"]).flatMap(ITermParsing.firstWindowID(from:))
+    }
+
+    /// One `it2` call. `nil` on any failure.
+    public func tabs(inWindow windowID: String) -> [TabInfo]? {
+        guard let output = run(["tab", "list", "--json"]),
+              let allTabs = ITermParsing.tabs(from: output)
         else { return nil }
         return allTabs.filter { $0.windowID == windowID }
     }

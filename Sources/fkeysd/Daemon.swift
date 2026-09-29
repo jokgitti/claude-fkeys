@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import FKeysCore
 
@@ -15,16 +16,14 @@ final class Daemon: @unchecked Sendable {
     private let store: StateStore
     private let iterm: ITermCLI
 
-    /// The frontmost window's tabs, as of the last successful re-derive.
-    /// Kept across a failed it2 call so a hiccup degrades to "stale", never
-    /// to "nothing bound".
-    private var tabs: [TabInfo] = []
-    /// Session uuid → `tab.id`, filled in once per uuid and dropped when its
-    /// state file is removed, or when `KeyBinding.invalidateStaleCache`
-    /// proves an entry stale (see rederiveTabs) — which is how a dragged
-    /// pane's old tab.id stops lingering without waiting for the session to
-    /// end.
-    private var uuidToTabID: [String: String] = [:]
+    /// The frontmost window's tabs and the session uuid → `tab.id` cache,
+    /// kept across a failed or out-of-budget it2 call so a hiccup degrades to
+    /// "stale", never to "nothing bound". See TabResolver.
+    private let resolver: TabResolver
+    /// Upper bound on it2 work per pass. A pass runs on the main queue next to
+    /// the keyboard keepalive; the firmware blanks the board after 10 s. One
+    /// call may overrun the budget by its 2 s timeout.
+    private static let passBudget: TimeInterval = 3
     private var lastUUIDs: Set<String> = []
 
     private var watcher: DirectoryWatcher?
@@ -49,6 +48,7 @@ final class Daemon: @unchecked Sendable {
         )
         self.store = StateStore(dir: stateDir)
         self.iterm = iterm
+        self.resolver = TabResolver(cli: iterm)
     }
 
     func start() {
@@ -92,20 +92,10 @@ final class Daemon: @unchecked Sendable {
         publish(states)
     }
 
-    /// Re-derives tab positions: refreshes the frontmost window's tab list,
-    /// drops any cache entry the fresh list proves stale (a dragged pane —
-    /// see KeyBinding.invalidateStaleCache), then fills in a `tab.id` for
-    /// any uuid still uncached. A failed or unreachable it2 call leaves the
-    /// previous tabs/cache in place entirely — see ITermCLI.frontmostWindowTabs.
-    private func rederiveTabs() {
-        guard let fresh = iterm.frontmostWindowTabs() else { return }
-        tabs = fresh
-        uuidToTabID = KeyBinding.invalidateStaleCache(uuidToTabID: uuidToTabID, tabs: tabs)
-        for uuid in lastUUIDs where uuidToTabID[uuid] == nil {
-            if let tabID = iterm.tabID(forSessionUUID: uuid) {
-                uuidToTabID[uuid] = tabID
-            }
-        }
+    /// Re-derives tab positions within `passBudget`. Anything not reached keeps
+    /// its previous value and is picked up by a later pass.
+    private func rederiveTabs(deadline: Date = Date().addingTimeInterval(passBudget)) {
+        resolver.rederive(uuids: lastUUIDs, deadline: deadline)
     }
 
     /// SessionEnd is not guaranteed — kill -9, a closed window and a crash
@@ -113,6 +103,7 @@ final class Daemon: @unchecked Sendable {
     /// until the daemon restarts. Also the 10s tab re-derive: up to 10s of
     /// staleness after a tab close or drag is accepted.
     func reconcile() {
+        let deadline = Date().addingTimeInterval(Self.passBudget)
         let live = iterm.liveSessionUUIDs()
         // An empty result means iTerm is gone or it2 failed. Treat it as
         // unknown, not as "every session died", or one it2 hiccup deletes
@@ -122,10 +113,10 @@ final class Daemon: @unchecked Sendable {
             for uuid in dead {
                 log("dropped \(uuid): no longer in it2 session list")
                 try? FileManager.default.removeItem(at: stateDir.appendingPathComponent("\(uuid).json"))
-                uuidToTabID.removeValue(forKey: uuid)
+                resolver.forget(uuid)
             }
         }
-        rederiveTabs()
+        rederiveTabs(deadline: deadline)
         publish(store.scan())
     }
 
@@ -151,12 +142,25 @@ final class Daemon: @unchecked Sendable {
         }.joined(separator: "\n")
     }
 
+    /// `tab goto` does not raise iTerm, so a key pressed in another app would
+    /// switch a tab nobody can see. Plain `activate()` does nothing here: on
+    /// macOS 14+ it only succeeds when the frontmost app yields, and this
+    /// accessory app is never frontmost. `activate(options:)` is deprecated but
+    /// still works (measured from Arc to iTerm on macOS 26); empty options
+    /// raise the app without bringing all its windows forward.
+    /// Not running: does nothing.
+    @available(macOS, deprecated: 14.0)
+    private static func activateITerm() {
+        NSRunningApplication.runningApplications(withBundleIdentifier: "com.googlecode.iterm2")
+            .first?.activate(options: [])
+    }
+
     private func focus(_ key: Int) {
-        iterm.gotoTab(key - 1)
+        TabFocus(gotoTab: iterm.gotoTab, activate: Self.activateITerm).focus(key: key)
     }
 
     private func publish(_ states: [String: SessionState]) {
-        let slots = KeyBinding.derive(tabs: tabs, uuidToTabID: uuidToTabID, states: states)
+        let slots = KeyBinding.derive(tabs: resolver.tabs, uuidToTabID: resolver.uuidToTabID, states: states)
         publisher.publish(slots.map { KeyState($0.state) })
     }
 
