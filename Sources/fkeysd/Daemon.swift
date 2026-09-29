@@ -29,10 +29,21 @@ final class Daemon: @unchecked Sendable {
 
     private var watcher: DirectoryWatcher?
     private var reconcileTimer: Timer?
+    private var keyboardTimer: Timer?
     private let hotkeys = HotkeyManager()
+    private let publisher: LightPublisher
 
-    init(stateDir: URL, iterm: ITermCLI = ITermCLI()) {
+    /// Also the firmware watchdog's refresh interval: it blanks the board 10 s
+    /// after the last report, so an idle daemon must still write inside that.
+    private static let keyboardTick: TimeInterval = 5
+
+    init(stateDir: URL, iterm: ITermCLI = ITermCLI(), paletteURL: URL? = nil) {
         self.stateDir = stateDir
+        self.publisher = LightPublisher(
+            sink: HIDTransport(),
+            palette: { paletteURL.map(Palette.load(from:)) ?? .default },
+            log: { print("fkeysd: \($0)"); fflush(stdout) }
+        )
         self.store = StateStore(dir: stateDir)
         self.iterm = iterm
     }
@@ -44,6 +55,7 @@ final class Daemon: @unchecked Sendable {
         watcher = DirectoryWatcher(dir: stateDir) { [weak self] in self?.refresh() }
         if watcher == nil { log("could not watch \(stateDir.path); falling back to the 10s loop only") }
 
+        publisher.tick()
         rederiveTabs()
         refresh()
 
@@ -55,6 +67,9 @@ final class Daemon: @unchecked Sendable {
 
         reconcileTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
             self?.reconcile()
+        }
+        keyboardTimer = Timer.scheduledTimer(withTimeInterval: Self.keyboardTick, repeats: true) { [weak self] _ in
+            self?.publisher.tick()
         }
     }
 
@@ -137,8 +152,10 @@ final class Daemon: @unchecked Sendable {
         iterm.gotoTab(key - 1)
     }
 
-    /// Filled in by Task 9, once the firmware exists.
-    private func publish(_ states: [String: SessionState]) {}
+    private func publish(_ states: [String: SessionState]) {
+        let slots = KeyBinding.derive(tabs: tabs, uuidToTabID: uuidToTabID, states: states)
+        publisher.publish(slots.map { KeyState($0.state) })
+    }
 
     private func log(_ message: String) {
         print("fkeysd: \(message)")

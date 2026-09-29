@@ -122,7 +122,7 @@ case .none:
     // without a Dock icon or a menu bar.
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
-    daemon = Daemon(stateDir: stateDir, iterm: ITermCLI(binary: it2Binary))
+    daemon = Daemon(stateDir: stateDir, iterm: ITermCLI(binary: it2Binary), paletteURL: paletteURL)
     daemon?.start()
     app.run()
 

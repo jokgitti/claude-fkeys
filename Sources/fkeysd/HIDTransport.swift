@@ -6,7 +6,7 @@ import FKeysCore
 ///
 /// That interface only exists once custom QMK firmware is flashed; on stock
 /// Glorious firmware `open()` returns false and the daemon runs without lights.
-final class HIDTransport {
+final class HIDTransport: ReportSink {
     private static let vendorID = 0x320F
     private static let productID = 0x5044
     private static let usagePage = 0xFF60   // QMK raw HID
