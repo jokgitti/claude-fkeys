@@ -1,7 +1,7 @@
 {
   "off": "#000000",
   "working": "#ff9500",
-  "idle": "#00d75f",
+  "idle": "#002f15",
   "waiting": "#ff00aa",
   "pulse": {
     "period_ms": 700,

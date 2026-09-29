@@ -16,7 +16,7 @@ Design: `~/.claude/plans/2026-09-21-claude-fkeys-design.md`
 
 Then add `~/.claude/fkey-status.sh` to the hooks in `~/.claude/settings.json`
 for: SessionStart, PreToolUse, PostToolUse, Notification, PermissionRequest,
-Stop, SubagentStop, SessionEnd. The entry must use `"async": true` to prevent
+Stop, SessionEnd (SubagentStop may stay registered; the hook ignores it). The entry must use `"async": true` to prevent
 the hook from blocking the tool-call path.
 
 **Then restart any Claude sessions that were already running.** Claude Code

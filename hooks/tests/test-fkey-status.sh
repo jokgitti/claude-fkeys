@@ -27,6 +27,16 @@ expect_state() { # event expected
   fi
 }
 
+expect_payload_state() { # label json expected
+  printf '%s' "$2" | sh "$HOOK"
+  got=$(jq -r '.state' < "$FILE" 2>/dev/null) || got="MISSING"
+  if [ "$got" = "$3" ]; then
+    echo "ok    $1 -> $3"
+  else
+    echo "FAIL  $1 -> got '$got', want '$3'"; FAIL=1
+  fi
+}
+
 expect_absent() { # event
   fire "$1"
   if [ -e "$FILE" ]; then echo "FAIL  $1 -> file still present"; FAIL=1
@@ -36,11 +46,35 @@ expect_absent() { # event
 expect_state SessionStart      idle
 expect_state PreToolUse        working
 expect_state PostToolUse       working
-expect_state SubagentStop      working
-expect_state Notification      waiting
 expect_state PermissionRequest waiting
 expect_state Stop              idle
 expect_absent SessionEnd
+
+# Notification is mapped by notification_type. The idle_prompt payload is a
+# captured live one, with its extra fields.
+expect_payload_state "Notification idle_prompt (captured payload)" \
+  '{"session_id":"claude-sid-1","transcript_path":"/tmp/t.jsonl","cwd":"/tmp","hook_event_name":"Notification","message":"Claude is waiting for your input","notification_type":"idle_prompt"}' idle
+expect_payload_state "Notification permission_prompt" \
+  '{"session_id":"claude-sid-1","hook_event_name":"Notification","message":"Claude needs your permission to use Bash","notification_type":"permission_prompt"}' waiting
+# Start from idle each time so "waiting" cannot be a leftover.
+fire Stop
+expect_payload_state "Notification without notification_type" \
+  '{"session_id":"claude-sid-1","hook_event_name":"Notification","message":"hello"}' waiting
+fire Stop
+expect_payload_state "Notification with an unrecognised type" \
+  '{"session_id":"claude-sid-1","hook_event_name":"Notification","notification_type":"some_future_type"}' waiting
+fire Stop
+expect_payload_state "Notification with a null type" \
+  '{"session_id":"claude-sid-1","hook_event_name":"Notification","notification_type":null}' waiting
+
+# SubagentStop after Stop must leave the file byte-for-byte unchanged (a
+# finished subagent says nothing about the main agent).
+fire Stop
+before=$(cat "$FILE")
+fire SubagentStop
+after=$(cat "$FILE")
+if [ "$before" = "$after" ]; then echo "ok    SubagentStop ignored (file unchanged)"
+else echo "FAIL  SubagentStop rewrote the file: $after"; FAIL=1; fi
 
 # claude_session_id is carried through
 fire PreToolUse

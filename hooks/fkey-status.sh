@@ -13,18 +13,29 @@ DIR="${FKEYS_STATE_DIR:-$HOME/.claude/.fkeys}"
 FILE="$DIR/${ITERM_SESSION_ID#*:}.json"
 
 RESULT=$(cat | jq -r '
+# SubagentStop is deliberately absent: a subagent finishing says nothing about
+# the main agent, and arriving after Stop it would flip a finished session back
+# to working. PreToolUse/PostToolUse already keep a busy session "working".
+#
+# Notification is mapped by notification_type. Only idle_prompt ("Claude is
+# waiting for your input", the turn is over) is idle. Every other type, an
+# unknown one and a missing one included, is waiting: for a notification the
+# safer error is to demand attention, not to look idle.
 def event_to_state:
-  if . == "SessionStart" or . == "Stop" then "idle"
-  elif . == "PreToolUse" or . == "PostToolUse" or . == "SubagentStop" then "working"
-  elif . == "Notification" or . == "PermissionRequest" then "waiting"
+  if .hook_event_name == "SessionStart" or .hook_event_name == "Stop" then "idle"
+  elif .hook_event_name == "PreToolUse" or .hook_event_name == "PostToolUse" then "working"
+  elif .hook_event_name == "Notification" then
+    (if .notification_type == "idle_prompt" then "idle" else "waiting" end)
+  elif .hook_event_name == "PermissionRequest" then "waiting"
   else empty
   end;
 
 .hook_event_name as $event |
+([event_to_state][0]) as $state |
 if $event == "SessionEnd" then
   "DELETE"
-elif ($event | event_to_state) then
-  "WRITE\t" + ({"state": ($event | event_to_state), "ts": (now|floor), "claude_session_id": (.session_id // "")} | @json)
+elif $state then
+  "WRITE\t" + ({"state": $state, "ts": (now|floor), "claude_session_id": (.session_id // "")} | @json)
 else
   "IGNORE"
 end

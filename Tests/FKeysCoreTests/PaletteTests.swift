@@ -99,8 +99,10 @@ private let colours = "\"off\":\"#010101\",\"working\":\"#020202\",\"idle\":\"#0
     #expect(try loadJSON("{\(colours),\"pulse\":5}").pulse == .default)
 }
 
-@Test func theShippedConfigMatchesTheDefaults() throws {
+@Test func theShippedConfigIsTheDefaultsWithADimIdle() throws {
     let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         .deletingLastPathComponent().appendingPathComponent("config/palette.json")
-    #expect(Palette.load(from: url) == Palette.default)
+    var expected = Palette.default
+    expected.idle = RGB(hex: "#002f15")!
+    #expect(Palette.load(from: url) == expected)
 }
