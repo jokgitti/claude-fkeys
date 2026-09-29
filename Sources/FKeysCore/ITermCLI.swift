@@ -60,11 +60,19 @@ public struct ITermCLI: Sendable {
         run(["session", "get-var", "tab.id", "-s", uuid]).flatMap(ITermParsing.tabID(from:))
     }
 
-    /// F*n* focuses tab index n-1 of the current window. `tab goto` is
-    /// 0-based and defaults to the current window, so this needs no uuid
-    /// lookup and no window argument at all.
-    public func gotoTab(_ index: Int) {
-        _ = run(["tab", "goto", String(index)])
+    /// Switches to tab `index` (0-based) of `window`. The window is passed
+    /// explicitly because `tab goto`'s default, "current window", does not
+    /// resolve reliably while iTerm is not the frontmost app (the same failure
+    /// `app get-focus` had). `nil` falls back to that default: used only before
+    /// any window id is known, where it is no worse than not passing one.
+    public func gotoTab(_ index: Int, window: String?) {
+        _ = run(Self.gotoArguments(index: index, window: window))
+    }
+
+    static func gotoArguments(index: Int, window: String?) -> [String] {
+        var arguments = ["tab", "goto", String(index)]
+        if let window { arguments += ["-w", window] }
+        return arguments
     }
 
     /// `nil` on any failure, including a timeout, so callers treat a hung

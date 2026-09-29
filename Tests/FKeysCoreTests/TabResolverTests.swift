@@ -92,9 +92,49 @@ private final class StubCLI: ITermQuerying, @unchecked Sendable {
 }
 
 @Suite struct TabFocusTests {
-    @Test func switchesTheTabBeforeRaisingTheApp() {
+    @Test func switchesTheCachedWindowsTabBeforeRaisingTheApp() {
         var events: [String] = []
-        TabFocus(gotoTab: { events.append("goto \($0)") }, activate: { events.append("activate") }).focus(key: 3)
-        #expect(events == ["goto 2", "activate"])
+        TabFocus(
+            gotoTab: { events.append("goto \($0) in \($1 ?? "nil")") },
+            windowID: { "pty-W" },
+            activate: { events.append("activate") }
+        ).focus(key: 3)
+        #expect(events == ["goto 2 in pty-W", "activate"])
+    }
+
+    @Test func passesNilWhenNoWindowIsCachedYetAndStillActs() {
+        var events: [String] = []
+        TabFocus(
+            gotoTab: { events.append("goto \($0) in \($1 ?? "nil")") },
+            windowID: { nil },
+            activate: { events.append("activate") }
+        ).focus(key: 1)
+        #expect(events == ["goto 0 in nil", "activate"])
+    }
+
+    @Test func resolverExposesTheWindowItsTabsCameFrom() {
+        let clock = Clock()
+        let cli = StubCLI(clock: clock, cost: 0)
+        let r = TabResolver(cli: cli, now: clock.now)
+        #expect(r.windowID == nil)
+        r.rederive(uuids: [], deadline: clock.now().addingTimeInterval(1))
+        #expect(r.windowID == "w")
+    }
+}
+
+@Suite struct ITermGotoTests {
+    @Test func gotoArgumentsIncludeTheWindowWhenKnown() {
+        #expect(ITermCLI.gotoArguments(index: 2, window: "pty-W") == ["tab", "goto", "2", "-w", "pty-W"])
+        #expect(ITermCLI.gotoArguments(index: 2, window: nil) == ["tab", "goto", "2"])
+    }
+
+    @Test func theRealCallPassesTheWindowFlagToTheBinary() throws {
+        let out = NSTemporaryDirectory() + "goto-args-\(UUID().uuidString)"
+        let path = NSTemporaryDirectory() + "it2-goto-\(UUID().uuidString).sh"
+        try "#!/bin/sh\necho \"$@\" > '\(out)'\n".write(toFile: path, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
+        defer { try? FileManager.default.removeItem(atPath: path); try? FileManager.default.removeItem(atPath: out) }
+        ITermCLI(binary: path).gotoTab(4, window: "pty-W")
+        #expect(try String(contentsOfFile: out, encoding: .utf8) == "tab goto 4 -w pty-W\n")
     }
 }

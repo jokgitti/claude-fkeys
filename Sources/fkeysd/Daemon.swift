@@ -156,7 +156,11 @@ final class Daemon: @unchecked Sendable {
     }
 
     private func focus(_ key: Int) {
-        TabFocus(gotoTab: iterm.gotoTab, activate: Self.activateITerm).focus(key: key)
+        TabFocus(
+            gotoTab: { [iterm] index, window in iterm.gotoTab(index, window: window) },
+            windowID: { [resolver] in resolver.windowID },
+            activate: Self.activateITerm
+        ).focus(key: key)
     }
 
     private func publish(_ states: [String: SessionState]) {

@@ -23,6 +23,8 @@ extension ITermCLI: ITermQuerying {}
 /// over successive passes. A uuid whose lookup fails counts as attempted.
 public final class TabResolver {
     public private(set) var tabs: [TabInfo] = []
+    /// The window `tabs` came from; `nil` until the first successful pass.
+    public private(set) var windowID: String?
     public private(set) var uuidToTabID: [String: String] = [:]
 
     private let cli: ITermQuerying
@@ -45,6 +47,7 @@ public final class TabResolver {
               let fresh = cli.tabs(inWindow: windowID)
         else { return }
         tabs = fresh
+        self.windowID = windowID
         uuidToTabID = KeyBinding.invalidateStaleCache(uuidToTabID: uuidToTabID, tabs: tabs)
 
         let pending = uuids.filter { uuidToTabID[$0] == nil }.sorted()

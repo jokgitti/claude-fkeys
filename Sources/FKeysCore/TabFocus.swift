@@ -1,16 +1,24 @@
-/// F*n* switches to tab n-1 first, then raises the app. The tab changes while
-/// iTerm is still behind, so the window comes up already showing it.
+/// F*n* switches to tab n-1 of the cached window first, then raises the app.
+/// The tab changes while iTerm is still behind, so the window comes up already
+/// showing it.
 public struct TabFocus {
-    private let gotoTab: (Int) -> Void
+    private let gotoTab: (Int, String?) -> Void
+    private let windowID: () -> String?
     private let activate: () -> Void
 
-    public init(gotoTab: @escaping (Int) -> Void, activate: @escaping () -> Void) {
+    /// `windowID` must return a cached value: a keypress does no extra it2 lookup.
+    public init(
+        gotoTab: @escaping (Int, String?) -> Void,
+        windowID: @escaping () -> String?,
+        activate: @escaping () -> Void
+    ) {
         self.gotoTab = gotoTab
+        self.windowID = windowID
         self.activate = activate
     }
 
     public func focus(key: Int) {
-        gotoTab(key - 1)
+        gotoTab(key - 1, windowID())
         activate()
     }
 }
