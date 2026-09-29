@@ -3,3 +3,6 @@
 .superpowers/
 *.hex
 *.bin
+
+# Recovery images are checked in on purpose: a vendor URL is not a recovery plan.
+!firmware/*.bin
