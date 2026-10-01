@@ -1,22 +1,33 @@
 # Firmware images and how to get back to normal
 
-Three `.bin` files, all for a **GMMK Pro ANSI rev 1** (USB `0x320F:0x5044`). Do not
-flash any of them to an ISO board or a rev 2.
+Two `.bin` files, both for a **GMMK Pro ANSI rev 1** (USB `0x320F:0x5044`). Do not
+flash either to an ISO board or a rev 2.
 
 | File | What it is | What you get |
 |---|---|---|
 | `gmmk_pro_rev1_ansi_fkeys.bin` | This project's firmware | Normal typing. All RGB is off except F-keys bound to a Claude session, which show its state colour (the waiting state pulses from fully dark to full colour every 700 ms by default; period and floor are set from `palette.json`, not by reflashing). Without a running `fkeysd` the whole keyboard is dark. |
 | `gmmk_pro_rev1_ansi_default.bin` | QMK's stock keymap for this board | Normal keyboard, normal RGB. No Claude integration. Nothing from this project. |
-| `GMMK_PRO_ANSI_stock_V0035_DFU.bin` | Glorious's own firmware | The keyboard as it shipped, including Glorious Core support |
 
-`sha256` of the Glorious image as downloaded on 2026-09-29:
-`40c0114269e62891aba8ee959b708498b9fb176573b8d88980218ebf2fb0c33f`
+## Getting Glorious's own firmware back
 
-Downloaded from the link on
+Glorious's stock image is their proprietary firmware and is **not included here**
+— it is not ours to redistribute. Fetch it and verify it:
+
+    curl -fLO 'https://gloriouscore.nyc3.digitaloceanspaces.com/Glorious_Core/%28QMK%29GMMK%20_PRO_US_2021_04_07_V0035_DFU_FW.bin'
+    shasum -a 256 '(QMK)GMMK _PRO_US_2021_04_07_V0035_DFU_FW.bin'
+    # expect 40c0114269e62891aba8ee959b708498b9fb176573b8d88980218ebf2fb0c33f
+
+That checksum is from the file as downloaded on 2026-09-29. Check it before
+flashing — a vendor URL can change contents without changing its path.
+
+The link comes from
 <https://glorious.ladesk.com/385785-GMMK-PRO---Reverting-to-default-Glorious-CORE-Firmware>.
 That page's text mentions v0045 for rev 1 while the file it actually links is
-V0035; this is the file it links. Kept locally because a vendor URL is not a
-recovery plan.
+V0035; the URL above is the file it links. **ANSI rev 1 only** — the same page
+has different files for ISO and rev 2.
+
+If that URL ever dies, `gmmk_pro_rev1_ansi_default.bin` here still restores a
+fully working keyboard; you only lose Glorious Core, which is Windows-only.
 
 ## Which one do you want
 
@@ -24,8 +35,8 @@ recovery plan.
   `gmmk_pro_rev1_ansi_default.bin`. Built from QMK source on this machine, so it
   is known to work on this board — it is the same build that produced the fkeys
   image, minus this project's keymap.
-- **You want Glorious Core back, or you are selling the board**:
-  `GMMK_PRO_ANSI_stock_V0035_DFU.bin`.
+- **You want Glorious Core back, or you are selling the board**: the Glorious
+  image, downloaded as above.
 - Glorious Core is Windows-only. On macOS the stock image buys you nothing over
   QMK's default keymap.
 
