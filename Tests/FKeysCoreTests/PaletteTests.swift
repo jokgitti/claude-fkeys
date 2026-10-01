@@ -30,7 +30,7 @@ import Foundation
     let p = Palette.default
     #expect(p.off == RGB(hex: "#000000"))
     #expect(p.working == RGB(hex: "#ff9500"))
-    #expect(p.idle == RGB(hex: "#00d75f"))
+    #expect(p.idle == RGB(hex: "#002f15"))
     #expect(p.waiting == RGB(hex: "#ff00aa"))
 }
 
@@ -99,10 +99,8 @@ private let colours = "\"off\":\"#010101\",\"working\":\"#020202\",\"idle\":\"#0
     #expect(try loadJSON("{\(colours),\"pulse\":5}").pulse == .default)
 }
 
-@Test func theShippedConfigIsTheDefaultsWithADimIdle() throws {
+@Test func theShippedConfigEqualsTheCompiledInDefaults() throws {
     let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         .deletingLastPathComponent().appendingPathComponent("config/palette.json")
-    var expected = Palette.default
-    expected.idle = RGB(hex: "#002f15")!
-    #expect(Palette.load(from: url) == expected)
+    #expect(Palette.load(from: url) == Palette.default)
 }

@@ -58,7 +58,10 @@ public enum HIDProtocol {
     public static func encodePulse(_ pulse: PulseSettings) -> [UInt8] {
         var report = [UInt8](repeating: 0, count: reportSize)
         report[0] = commandSetPulse
-        let period = UInt16(clamping: pulse.periodMs)
+        // Firmware built before the odd-period clamp overflows at the peak for
+        // odd periods below 512 ms. One millisecond is not visible.
+        let odd = pulse.periodMs % 2 == 1 && pulse.periodMs < 512
+        let period = UInt16(clamping: odd ? pulse.periodMs + 1 : pulse.periodMs)
         report[1] = UInt8(period & 0xFF)
         report[2] = UInt8(period >> 8)
         report[3] = UInt8(clamping: pulse.floor)

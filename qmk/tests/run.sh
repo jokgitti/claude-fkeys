@@ -66,7 +66,7 @@ EOF
 
 # Fakes the handful of `it2` subcommands fkeysd's tab-index derivation and
 # reconcile() call, so the harness can exercise the real derivation path
-# without a live iTerm. Answers exactly the calls in Sources/fkeysd/ITermCLI.swift;
+# without a live iTerm. Answers exactly the calls in Sources/FKeysCore/ITermCLI.swift;
 # anything else fails loudly rather than returning empty, since empty output
 # is deliberately read as "unknown, change nothing" and would pass for the
 # wrong reason.

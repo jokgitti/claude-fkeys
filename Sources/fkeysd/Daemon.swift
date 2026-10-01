@@ -28,20 +28,16 @@ final class Daemon: @unchecked Sendable {
 
     private var watcher: DirectoryWatcher?
     private var reconcileTimer: Timer?
-    private var keyboardTimer: Timer?
     private let hotkeys = HotkeyManager()
-    private let publisher: LightPublisher
+    private let keyboard: KeyboardLights
 
-    /// Also the firmware watchdog's refresh interval: it blanks the board 10 s
-    /// after the last report, so an idle daemon must still write inside that.
-    /// 2 s leaves five writes inside the window; the tolerance bounds how far
-    /// macOS may coalesce the timer.
-    private static let keyboardTick: TimeInterval = 2
-    private static let keyboardTickTolerance: TimeInterval = 0.2
 
     init(stateDir: URL, iterm: ITermCLI = ITermCLI(), paletteURL: URL? = nil) {
         self.stateDir = stateDir
-        self.publisher = LightPublisher(
+        // KeyboardLights ticks every 2 s on its own queue: the firmware blanks
+        // the board 10 s after the last report, and this class's main queue
+        // can be held by it2 calls.
+        self.keyboard = KeyboardLights(
             sink: HIDTransport(),
             palette: { paletteURL.map(Palette.load(from:)) ?? .default },
             log: { print("fkeysd: \($0)"); fflush(stdout) }
@@ -58,7 +54,7 @@ final class Daemon: @unchecked Sendable {
         watcher = DirectoryWatcher(dir: stateDir) { [weak self] in self?.refresh() }
         if watcher == nil { log("could not watch \(stateDir.path); falling back to the 10s loop only") }
 
-        publisher.tick()
+        keyboard.start()
         rederiveTabs()
         refresh()
 
@@ -71,10 +67,6 @@ final class Daemon: @unchecked Sendable {
         reconcileTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
             self?.reconcile()
         }
-        keyboardTimer = Timer.scheduledTimer(withTimeInterval: Self.keyboardTick, repeats: true) { [weak self] _ in
-            self?.publisher.tick()
-        }
-        keyboardTimer?.tolerance = Self.keyboardTickTolerance
     }
 
     /// Cheap path: no it2 work. The hook triggers this on every
@@ -156,16 +148,12 @@ final class Daemon: @unchecked Sendable {
     }
 
     private func focus(_ key: Int) {
-        TabFocus(
-            gotoTab: { [iterm] index, window in iterm.gotoTab(index, window: window) },
-            windowID: { [resolver] in resolver.windowID },
-            activate: Self.activateITerm
-        ).focus(key: key)
+        TabFocus(cli: iterm, resolver: resolver, activate: Self.activateITerm).focus(key: key)
     }
 
     private func publish(_ states: [String: SessionState]) {
         let slots = KeyBinding.derive(tabs: resolver.tabs, uuidToTabID: resolver.uuidToTabID, states: states)
-        publisher.publish(slots.map { KeyState($0.state) })
+        keyboard.publish(slots.map { KeyState($0.state) })
     }
 
     private func log(_ message: String) {

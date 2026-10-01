@@ -32,7 +32,7 @@ import Testing
     #expect(Array(report[1...12]) == [
         0, 0, 0,          // off     #000000
         255, 149, 0,      // working #ff9500
-        0, 215, 95,       // idle    #00d75f
+        0, 47, 21,        // idle    #002f15
         255, 0, 170,      // waiting #ff00aa
     ])
     #expect(Array(report[13...31]).allSatisfy { $0 == 0 })
@@ -57,4 +57,10 @@ import Testing
 @Test func defaultPulseIs700msWithFloorZero() {
     let report = HIDProtocol.encodePulse(.default)
     #expect(Array(report[0...3]) == [0x03, 0xBC, 0x02, 0])
+}
+
+@Test func oddPulsePeriodsBelow512AreRoundedUpToEven() {
+    #expect(Array(HIDProtocol.encodePulse(PulseSettings(periodMs: 501, floor: 0))[1...2]) == [0xF6, 0x01]) // 502
+    #expect(Array(HIDProtocol.encodePulse(PulseSettings(periodMs: 500, floor: 0))[1...2]) == [0xF4, 0x01])
+    #expect(Array(HIDProtocol.encodePulse(PulseSettings(periodMs: 513, floor: 0))[1...2]) == [0x01, 0x02]) // unchanged
 }

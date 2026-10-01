@@ -138,3 +138,34 @@ private final class StubCLI: ITermQuerying, @unchecked Sendable {
         #expect(try String(contentsOfFile: out, encoding: .utf8) == "tab goto 4 -w pty-W\n")
     }
 }
+
+@Suite struct TabFocusWiringTests {
+    @Test func productionWiringPassesTheResolvedWindowToTabGoto() throws {
+        let argv = NSTemporaryDirectory() + "goto-wiring-\(UUID().uuidString)"
+        let path = NSTemporaryDirectory() + "it2-wiring-\(UUID().uuidString).sh"
+        let script = """
+        #!/bin/sh
+        case "$1 $2" in
+          "window list") echo '[ { "id": "pty-W1" } ]' ;;
+          "tab list") echo '[ { "index": 0, "id": "10", "window_id": "pty-W1", "is_active": true, "sessions": 1 } ]' ;;
+          "tab goto") echo "$@" > '\(argv)' ;;
+        esac
+        """
+        try script.write(toFile: path, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
+        defer { try? FileManager.default.removeItem(atPath: path); try? FileManager.default.removeItem(atPath: argv) }
+
+        let cli = ITermCLI(binary: path)
+        let resolver = TabResolver(cli: cli)
+        var activated = false
+
+        // Before any resolve: no -w.
+        TabFocus(cli: cli, resolver: resolver, activate: { activated = true }).focus(key: 2)
+        #expect(try String(contentsOfFile: argv, encoding: .utf8) == "tab goto 1\n")
+        #expect(activated)
+
+        resolver.rederive(uuids: [], deadline: Date().addingTimeInterval(5))
+        TabFocus(cli: cli, resolver: resolver, activate: {}).focus(key: 3)
+        #expect(try String(contentsOfFile: argv, encoding: .utf8) == "tab goto 2 -w pty-W1\n")
+    }
+}

@@ -17,6 +17,16 @@ public struct TabFocus {
         self.activate = activate
     }
 
+    /// The production wiring, kept here so a test covers it: `it2 tab goto`
+    /// gets the window id the resolver last resolved.
+    public init(cli: ITermCLI, resolver: TabResolver, activate: @escaping () -> Void) {
+        self.init(
+            gotoTab: { index, window in cli.gotoTab(index, window: window) },
+            windowID: { resolver.windowID },
+            activate: activate
+        )
+    }
+
     public func focus(key: Int) {
         gotoTab(key - 1, windowID())
         activate()

@@ -89,7 +89,7 @@ static const uint8_t expected_led[FKEYS_COUNT] = {
 };
 
 // Independent literal copies of the brief's contract values (task-8-brief.md:
-// 10000ms watchdog, 1500ms pulse period, pulse floor 51, command 0x01) rather
+// 10000ms watchdog, command bytes; the pulse defaults are 700 ms / floor 0, below) rather
 // than fkeys_leds.h's own macros: if a future edit to that header drifted
 // from the contract, deriving expectations from the same macro under test
 // would hide the drift instead of catching it.
@@ -594,6 +594,17 @@ static void scenario_pulse_raw(const char *states_hex) {
     send_pulse(0xFF, 0xFF, 128);
     check_pulse("pulse-raw(65535 ms, floor 128)", 65535, 128,
                 (rgb_t){DEFAULT_WAITING.r, DEFAULT_WAITING.g, DEFAULT_WAITING.b});
+
+    // Odd periods below 512 ms: at phase == half the wave is half + 1, which
+    // used to overflow 255 and truncate (period 501 dropped to 0 at the peak).
+    static const uint16_t odd_periods[] = {3, 5, 7, 51, 255, 501, 511, 513};
+    for (unsigned i = 0; i < sizeof odd_periods / sizeof odd_periods[0]; i++) {
+        char tag[64];
+        snprintf(tag, sizeof tag, "pulse-raw(odd period %u ms)", odd_periods[i]);
+        g_mock_time = 0;
+        send_pulse((uint8_t)(odd_periods[i] & 0xFF), (uint8_t)(odd_periods[i] >> 8), 0);
+        check_pulse(tag, odd_periods[i], 0, (rgb_t){DEFAULT_WAITING.r, DEFAULT_WAITING.g, DEFAULT_WAITING.b});
+    }
 
     // Floor is a full byte: 255 means no dimming at all.
     send_pulse(0xBC, 0x02, 255);

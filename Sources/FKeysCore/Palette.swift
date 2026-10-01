@@ -101,10 +101,13 @@ public struct Palette: Equatable, Sendable, Codable {
         pulse = (try? c.decode(PulseSettings.self, forKey: .pulse)) ?? .default
     }
 
+    /// `idle` is dim on purpose (config/palette.json ships the same value).
+    /// The firmware's compiled-in idle is still #00d75f: it only shows when a
+    /// SET_STATES arrives with no SET_PALETTE, which this daemon never sends.
     public static let `default` = Palette(
         off: RGB(r: 0, g: 0, b: 0),
         working: RGB(r: 255, g: 149, b: 0),
-        idle: RGB(r: 0, g: 215, b: 95),
+        idle: RGB(r: 0, g: 47, b: 21),
         waiting: RGB(r: 255, g: 0, b: 170)
     )
 

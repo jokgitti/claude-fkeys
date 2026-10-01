@@ -17,15 +17,19 @@ RESULT=$(cat | jq -r '
 # the main agent, and arriving after Stop it would flip a finished session back
 # to working. PreToolUse/PostToolUse already keep a busy session "working".
 #
-# Notification is mapped by notification_type. Only idle_prompt ("Claude is
-# waiting for your input", the turn is over) is idle. Every other type, an
-# unknown one and a missing one included, is waiting: for a notification the
-# safer error is to demand attention, not to look idle.
+# Notification is mapped by notification_type. idle_prompt ("Claude is waiting
+# for your input", the turn is over) is idle; permission_prompt and
+# elicitation_dialog are waiting. Any other type, an unknown, missing or null
+# one included, changes nothing: a notification we do not understand (for
+# example auth_success) is not evidence about what the session needs, and
+# guessing "waiting" would leave a key pulsing with nothing to do.
 def event_to_state:
   if .hook_event_name == "SessionStart" or .hook_event_name == "Stop" then "idle"
   elif .hook_event_name == "PreToolUse" or .hook_event_name == "PostToolUse" then "working"
   elif .hook_event_name == "Notification" then
-    (if .notification_type == "idle_prompt" then "idle" else "waiting" end)
+    (if .notification_type == "idle_prompt" then "idle"
+     elif .notification_type == "permission_prompt" or .notification_type == "elicitation_dialog" then "waiting"
+     else empty end)
   elif .hook_event_name == "PermissionRequest" then "waiting"
   else empty
   end;

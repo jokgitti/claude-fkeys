@@ -56,16 +56,35 @@ expect_payload_state "Notification idle_prompt (captured payload)" \
   '{"session_id":"claude-sid-1","transcript_path":"/tmp/t.jsonl","cwd":"/tmp","hook_event_name":"Notification","message":"Claude is waiting for your input","notification_type":"idle_prompt"}' idle
 expect_payload_state "Notification permission_prompt" \
   '{"session_id":"claude-sid-1","hook_event_name":"Notification","message":"Claude needs your permission to use Bash","notification_type":"permission_prompt"}' waiting
-# Start from idle each time so "waiting" cannot be a leftover.
 fire Stop
-expect_payload_state "Notification without notification_type" \
-  '{"session_id":"claude-sid-1","hook_event_name":"Notification","message":"hello"}' waiting
+expect_payload_state "Notification elicitation_dialog" \
+  '{"session_id":"claude-sid-1","hook_event_name":"Notification","notification_type":"elicitation_dialog"}' waiting
+
+# Any other Notification type (unknown, missing, null) changes nothing, from
+# every starting state.
+expect_unchanged() { # label json start_event
+  fire "$3"
+  before=$(cat "$FILE")
+  printf '%s' "$2" | sh "$HOOK"
+  after=$(cat "$FILE" 2>/dev/null || echo MISSING)
+  if [ "$before" = "$after" ]; then echo "ok    $1 leaves the $3 state untouched"
+  else echo "FAIL  $1 changed the file: $after"; FAIL=1; fi
+}
+for start in Stop PreToolUse PermissionRequest; do
+  expect_unchanged "Notification without notification_type" \
+    '{"session_id":"claude-sid-1","hook_event_name":"Notification","message":"hello"}' $start
+  expect_unchanged "Notification with an unrecognised type" \
+    '{"session_id":"claude-sid-1","hook_event_name":"Notification","notification_type":"auth_success"}' $start
+  expect_unchanged "Notification with a null type" \
+    '{"session_id":"claude-sid-1","hook_event_name":"Notification","notification_type":null}' $start
+done
+
+# Input the hook cannot use must neither crash nor touch the file.
 fire Stop
-expect_payload_state "Notification with an unrecognised type" \
-  '{"session_id":"claude-sid-1","hook_event_name":"Notification","notification_type":"some_future_type"}' waiting
-fire Stop
-expect_payload_state "Notification with a null type" \
-  '{"session_id":"claude-sid-1","hook_event_name":"Notification","notification_type":null}' waiting
+expect_unchanged "malformed JSON" '{"hook_event_name":"Stop"' Stop
+expect_unchanged "empty input" '' Stop
+expect_unchanged "payload without hook_event_name" '{"session_id":"claude-sid-1","message":"x"}' Stop
+expect_unchanged "hook_event_name null" '{"hook_event_name":null}' PreToolUse
 
 # SubagentStop after Stop must leave the file byte-for-byte unchanged (a
 # finished subagent says nothing about the main agent).

@@ -56,6 +56,8 @@ static uint8_t fkey_pulse(void) {
     uint16_t half  = fkey_pulse_ms / 2;
     uint16_t phase = timer_read32() % fkey_pulse_ms;
     uint16_t tri   = (phase < half) ? phase : (fkey_pulse_ms - phase);
+    // An odd period gives half + 1 at phase == half, which would overflow 255.
+    if (tri > half) tri = half;
     return fkey_pulse_floor + (uint32_t)tri * (255 - fkey_pulse_floor) / half;
 }
 
